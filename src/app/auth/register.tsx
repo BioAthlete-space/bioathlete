@@ -181,7 +181,7 @@ export default function OnboardingScreen() {
         disabled={!email || password.length < 6 || !cguAccepted || !privacyAccepted}
         style={{ width: '100%', marginBottom: 16 }}
       />
-      <TouchableOpacity onPress={() => router.push('/auth/login')}>
+      <TouchableOpacity onPress={() => router.push('/auth')}>
         <Text style={{ color: theme.primary, textAlign: 'center', fontWeight: 'bold' }}>J'ai déjà un compte</Text>
       </TouchableOpacity>
     </View>

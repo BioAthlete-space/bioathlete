@@ -16,7 +16,7 @@ export default function CoachDashboardScreen() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.replace('/auth/login');
+    router.replace('/auth');
   };
 
   return (

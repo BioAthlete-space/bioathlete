@@ -33,7 +33,7 @@ export default function AccountScreen() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.replace('/auth/login');
+    router.replace('/auth' as any);
   };
 
   // ── HOOK DE PERSISTANCE ──
