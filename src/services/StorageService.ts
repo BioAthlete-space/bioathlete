@@ -68,9 +68,17 @@ export async function loadProfile(): Promise<AthleteProfile> {
         // Mapping Supabase -> Local
         const supProfile: Partial<AthleteProfile> = {
           role: profileData.role || 'athlete',
-          nom: profileData.lastName || '',
-          prenom: profileData.firstName || '',
-          mesDisciplines: profileData.mesDisciplines || (profileData.mainDiscipline ? [profileData.mainDiscipline] : []),
+          nom: profileData.lastname || '',
+          prenom: profileData.firstname || '',
+          dateNaissance: profileData.birthdate || '',
+          sexe: profileData.gender || '',
+          nationalite: profileData.nationalite || '',
+          club: profileData.club || '',
+          niveau: profileData.level || '',
+          niveauFfa: profileData.niveauffa || '',
+          taille: profileData.heightcm ? String(profileData.heightcm) : '',
+          langue: profileData.langue || 'Français',
+          mesDisciplines: profileData.mesdisciplines || (profileData.maindiscipline ? [profileData.maindiscipline] : []),
         };
         const finalProfile = { ...DEFAULT_PROFILE, ...supProfile };
         
@@ -108,14 +116,19 @@ export async function saveProfile(profile: AthleteProfile): Promise<boolean> {
       
       supabase.from('profiles').upsert({
         id: user.id, // Vrai ID utilisateur
-        firstName: profile.prenom,
-        lastName: profile.nom,
+        firstname: profile.prenom,
+        lastname: profile.nom,
         gender: profile.sexe,
-        birthDate: profile.dateNaissance,
-        heightCm: parseInt(profile.taille) || null,
-        weightKg: null,
-        mainDiscipline: profile.mesDisciplines.length > 0 ? profile.mesDisciplines[0] : null,
-        level: profile.niveau
+        birthdate: profile.dateNaissance,
+        heightcm: parseInt(profile.taille) || null,
+        weightkg: null,
+        maindiscipline: profile.mesDisciplines.length > 0 ? profile.mesDisciplines[0] : null,
+        level: profile.niveau,
+        nationalite: profile.nationalite,
+        club: profile.club,
+        niveauffa: profile.niveauFfa,
+        langue: profile.langue,
+        mesdisciplines: profile.mesDisciplines
       }).then(({ error }) => {
         if (error) console.warn('[Supabase Sync] Erreur Profile:', error.message);
       });
@@ -174,13 +187,13 @@ export async function saveCheckin(checkin: CheckinData): Promise<boolean> {
         id: checkin.id,
         user_id: user.id, // Vrai ID utilisateur
         date: checkin.date,
-        sleepHours: checkin.sleepHours,
-        sleepQuality: checkin.sleepQuality,
-        wakeupFeeling: checkin.wakeupFeeling,
+        sleephours: checkin.sleepHours,
+        sleepquality: checkin.sleepQuality,
+        wakeupfeeling: checkin.wakeupFeeling,
         motivation: checkin.motivation,
         fatigue: checkin.fatigue,
-        hasPain: checkin.hasPain,
-        painDetails: checkin.painDetails,
+        haspain: checkin.hasPain,
+        paindetails: checkin.painDetails,
         score: checkin.score
       }).then(({ error }) => {
         if (error) console.warn('[Supabase Sync] Erreur Check-in:', error.message);
