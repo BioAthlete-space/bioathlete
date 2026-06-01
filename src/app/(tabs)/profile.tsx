@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Switch } from 're
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../hooks/useThemeColor';
 import { useAthleteProfile } from '../../hooks/useAthleteProfile';
+import { useAuth } from '../../providers/AuthProvider';
 import { Layout } from '../../constants/Layout';
 import { Typography } from '../../constants/Typography';
 import { Header } from '../../components/Header';
@@ -15,6 +16,12 @@ export default function ProfileScreen() {
   const router = useRouter();
   const sections = useProfileMenu();
   const { profile } = useAthleteProfile();
+  const { signOut } = useAuth();
+  
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace('/auth/login' as any);
+  };
   
   const displayName = profile.prenom || profile.nom 
     ? `${profile.prenom} ${profile.nom}`.trim() 
@@ -60,8 +67,17 @@ export default function ProfileScreen() {
 
         {/* Actions de bas de page */}
         <View style={styles.bottomActions}>
-          <CustomButton title="Déconnexion" variant="outline" style={styles.actionBtn} />
-          <CustomButton title="Supprimer le compte" variant="danger" style={styles.actionBtn} />
+          <CustomButton 
+            title="Déconnexion" 
+            variant="outline" 
+            style={styles.actionBtn} 
+            onPress={handleSignOut}
+          />
+          <CustomButton 
+            title="Supprimer le compte" 
+            variant="danger" 
+            style={styles.actionBtn} 
+          />
         </View>
 
       </ScrollView>
