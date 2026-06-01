@@ -23,9 +23,15 @@ export default function ProfileScreen() {
     router.replace('/auth' as any);
   };
   
-  const displayName = profile.prenom || profile.nom 
-    ? `${profile.prenom} ${profile.nom}`.trim() 
-    : 'Utilisateur';
+  let displayName = 'Utilisateur';
+  if (profile.prenom) {
+    displayName = profile.prenom;
+    if (profile.nom) {
+      displayName += ` ${profile.nom.charAt(0).toUpperCase()}.`;
+    }
+  } else if (profile.nom) {
+    displayName = profile.nom;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>

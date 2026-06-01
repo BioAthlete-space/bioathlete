@@ -20,7 +20,6 @@ export interface AthleteProfile {
   // Identité
   nom: string;
   prenom: string;
-  username: string;
   email: string;
   dateNaissance: string;
   sexe: string;
@@ -47,7 +46,6 @@ export const DEFAULT_PROFILE: AthleteProfile = {
   role: 'athlete',
   nom: '',
   prenom: '',
-  username: '',
   email: '',
   dateNaissance: '',
   sexe: '',

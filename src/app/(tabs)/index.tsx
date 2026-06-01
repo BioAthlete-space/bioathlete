@@ -11,10 +11,12 @@ import { ActivityRings } from '../../components/ActivityRings';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { TouchableOpacity } from 'react-native';
+import { useAthleteProfile } from '../../hooks/useAthleteProfile';
 
 export default function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { profile } = useAthleteProfile();
 
   return (
     <LinearGradient 
@@ -36,7 +38,7 @@ export default function HomeScreen() {
         leftContent={
           <View style={styles.headerLeft}>
             <View>
-              <Text style={[styles.greeting, { color: theme.icon }]}>Salut Usain 👋</Text>
+              <Text style={[styles.greeting, { color: theme.icon }]}>Salut $\{profile.prenom || 'Athl�te'\} 👋</Text>
               <Text style={[styles.userName, { color: theme.text }]}>Prêt pour aujourd'hui ?</Text>
             </View>
           </View>
@@ -302,3 +304,4 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.xs,
   },
 });
+

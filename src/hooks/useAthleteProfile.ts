@@ -17,6 +17,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { DeviceEventEmitter } from 'react-native';
+
+const PROFILE_UPDATED_EVENT = 'profile_updated';
 import { AthleteProfile, DEFAULT_PROFILE } from '../types/AthleteProfile';
 import { loadProfile, saveProfile } from '../services/StorageService';
 
@@ -128,6 +131,15 @@ export function useAthleteProfile(): UseAthleteProfileReturn {
   }, [performSave]);
 
   // ── UPDATE FIELD ──
+  // Global Sync
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(PROFILE_UPDATED_EVENT, (newP) => {
+      setProfile(newP);
+      latestProfileRef.current = newP;
+    });
+    return () => sub.remove();
+  }, []);
+
   const updateField = useCallback((key: keyof AthleteProfile, value: any) => {
     // Ne pas sauvegarder tant que le chargement initial n'est pas terminé
     if (!hasLoadedRef.current) return;
@@ -177,3 +189,4 @@ export function useAthleteProfile(): UseAthleteProfileReturn {
     hasChanges,
   };
 }
+
