@@ -77,6 +77,7 @@ export default function ProfileScreen() {
             title="Supprimer le compte" 
             variant="danger" 
             style={styles.actionBtn} 
+            onPress={handleSignOut}
           />
         </View>
 
