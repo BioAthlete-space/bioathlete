@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  StyleSheet, View, Text, TextInput, TouchableOpacity, 
+  StyleSheet, View, Text, TextInput, TouchableOpacity,
   FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, Image
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../hooks/useThemeColor';
 import { Layout } from '../../constants/Layout';
@@ -11,6 +12,7 @@ import { Header } from '../../components/Header';
 import { CustomButton } from '../../components/CustomButton';
 import { Card } from '../../components/Card';
 import { MaterialIcons } from '@expo/vector-icons';
+import { CDLogo } from '../../components/CDLogo';
 import Animated, { FadeInUp, FadeInDown, SlideInRight, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { fetchAthleteAIContext } from './aiContext';
@@ -302,7 +304,7 @@ RÈGLES IMPORTANTES:
   const renderLandingPage = () => (
     <View style={styles.landingContainer}>
       <Animated.View entering={FadeInDown.delay(100).springify()} style={{ position: 'absolute', top: '15%', alignItems: 'center', width: '100%' }}>
-        <Image source={require('../../assets/images/logo-glow.png')} style={{ width: 200, height: 200, resizeMode: 'contain' }} />
+        <CDLogo size={180} />
       </Animated.View>
 
       <Animated.View entering={FadeInUp.delay(300).springify()} style={{ width: '100%', alignItems: 'center', marginTop: 100 }}>
