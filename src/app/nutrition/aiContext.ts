@@ -23,9 +23,10 @@ export const fetchAthleteAIContext = async (userId: string) => {
       .from('athlete_ai_memory')
       .select('memory_text')
       .eq('athlete_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5);
 
-    // 4. Recent Nutrition Logs (last 3 days to keep context light)
+    // 4. Recent Nutrition Logs (last 3 days)
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const { data: logs } = await supabase
@@ -33,10 +34,20 @@ export const fetchAthleteAIContext = async (userId: string) => {
       .select('*')
       .eq('athlete_id', userId)
       .gte('date', threeDaysAgo.toISOString().split('T')[0])
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .limit(20);
 
-    // 5. Workouts
-    // We need to find what group the user is in, and fetch the workouts for that group.
+    // 5. Today's Check-in (CRITICAL for IA context)
+    const today = new Date().toISOString().split('T')[0];
+    const { data: todayCheckin } = await supabase
+      .from('checkins')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // 6. Workouts: 10 past + 10 future (filtered, not full history)
     let workouts = [];
     const { data: memberships } = await supabase
       .from('group_members')
@@ -46,22 +57,26 @@ export const fetchAthleteAIContext = async (userId: string) => {
     if (memberships && memberships.length > 0) {
       const groupIds = memberships.map(m => m.group_id);
       
-      const today = new Date();
+      const todayDate = new Date();
       const tenDaysAhead = new Date();
-      tenDaysAhead.setDate(today.getDate() + 10);
-      const threeDaysBehind = new Date();
-      threeDaysBehind.setDate(today.getDate() - 3);
+      tenDaysAhead.setDate(todayDate.getDate() + 10);
+      const tenDaysBehind = new Date();
+      tenDaysBehind.setDate(todayDate.getDate() - 10);
 
       const { data: wData } = await supabase
         .from('workouts')
-        .select('*')
+        .select('id, title, date, group_id')
         .in('group_id', groupIds)
-        .gte('date', threeDaysBehind.toISOString().split('T')[0])
+        .gte('date', tenDaysBehind.toISOString().split('T')[0])
         .lte('date', tenDaysAhead.toISOString().split('T')[0])
-        .order('date', { ascending: true });
+        .order('date', { ascending: true })
+        .limit(20);
         
       if (wData) workouts = wData;
     }
+
+    // Build pain flag for AI prompt adaptation
+    const hasPainToday = todayCheckin?.haspain === true;
 
     return {
       profile,
@@ -69,6 +84,8 @@ export const fetchAthleteAIContext = async (userId: string) => {
       memory: memoryData?.map(m => m.memory_text).join('\n\n') || null,
       nutritionLogs: logs || [],
       workouts: workouts || [],
+      todayCheckin: todayCheckin || null,
+      hasPainToday,
     };
   } catch (error) {
     console.error("Error fetching athlete AI context:", error);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Image, Platform, Animated, TextInput, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Image, Platform, Animated, TextInput, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { createElement } from 'react'; // React natif pour le web
 import { useRouter } from 'expo-router';
 import { useFonts, Montserrat_300Light } from '@expo-google-fonts/montserrat';
@@ -17,9 +17,12 @@ export default function WelcomeScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const shiftAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const handleShowLogin = () => {
     setShowLogin(true);
@@ -54,12 +57,34 @@ export default function WelcomeScreen() {
     });
   };
 
+  function mapAuthError(message: string): string {
+    if (message.includes('Invalid login credentials'))
+      return 'Identifiants incorrects. Vérifiez votre email et mot de passe.';
+    if (message.includes('Email not confirmed'))
+      return 'Veuillez confirmer votre email avant de vous connecter.';
+    if (message.includes('User already registered'))
+      return 'Un compte existe déjà avec cette adresse email.';
+    return 'Une erreur est survenue. Veuillez réessayer.';
+  }
+
   async function signInWithEmail() {
+    setAuthError('');
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
-    if (error) Alert.alert('Erreur', error.message);
-    else router.replace('/');
+    if (error) {
+      setAuthError(mapAuthError(error.message));
+    } else {
+      setIsRedirecting(true);
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 400, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 400, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 350, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 350, useNativeDriver: true }),
+      ]).start(() => {
+        router.replace('/');
+      });
+    }
   }
 
   const translateY = shiftAnim.interpolate({
@@ -98,6 +123,20 @@ export default function WelcomeScreen() {
 
   if (!fontsLoaded) {
     return null; // ou un splash screen/spinner
+  }
+
+  if (isRedirecting) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <Animated.Image
+          source={{ uri: 'https://nmmqkaljsjualnjlzyfw.supabase.co/storage/v1/object/public/Logo-s/PhotoRoom-20260504_162240.png' }}
+          style={[styles.logoImage, { transform: [{ scale: pulseAnim }] }]}
+          resizeMode="contain"
+        />
+        <ActivityIndicator size="small" color={theme.icon} style={{ marginTop: 24 }} />
+        <Text style={{ color: theme.icon, fontSize: 14, marginTop: 12 }}>Chargement de votre profil...</Text>
+      </View>
+    );
   }
 
   return (
@@ -156,7 +195,13 @@ export default function WelcomeScreen() {
                   secureTextEntry
                 />
               </View>
-              
+
+              {authError !== '' && (
+                <Text style={{ color: '#E53935', fontSize: 13, marginTop: 10, paddingHorizontal: 4 }}>
+                  {authError}
+                </Text>
+              )}
+
               <CustomButton 
                 title={loading ? "Connexion..." : "Se connecter"} 
                 onPress={signInWithEmail} 

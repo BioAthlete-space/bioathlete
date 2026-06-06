@@ -13,6 +13,7 @@ import { CustomButton } from '../../components/CustomButton';
 import { Card } from '../../components/Card';
 import { MaterialIcons } from '@expo/vector-icons';
 import { CDLogo } from '../../components/CDLogo';
+import { QuickReplies } from '../../components/QuickReplies';
 import Animated, { FadeInUp, FadeInDown, SlideInRight, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { fetchAthleteAIContext } from './aiContext';
@@ -62,6 +63,7 @@ export default function AINutritionHubScreen() {
   const [onboardingData, setOnboardingData] = useState({ discipline: '', tools: '', weight: '', height: '', goal: '' });
   const [isOtherMode, setIsOtherMode] = useState(false);
   const [otherText, setOtherText] = useState('');
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
 
   // Profile data
   const [nutritionProfile, setNutritionProfile] = useState<any>(null);
@@ -167,22 +169,25 @@ export default function AINutritionHubScreen() {
         stateInstruction = `[CONTEXTE: L'athlète discute librement avec toi. Réponds à ses questions sur la nutrition sportive de manière experte mais très concise.]`;
       }
 
-      const systemPrompt = `Tu es Bioflow Nutrition, le nutritionniste sportif IA de l'application BioAthlete. Tu parles directement à l'athlète. L'application gère uniquement des sportifs pratiquant l'athlétisme.
-Ses données actuelles en base :
-- Poids : ${contextData?.profile?.weightkg || 'Non renseigné'} kg
-- Objectifs caloriques actuels : ${contextData?.nutrition?.target_calories || 'Non défini'} kcal/j
-- Profil nutrition : ${JSON.stringify(contextData?.nutrition || {})}
-- Historique de repas récent : ${JSON.stringify(contextData?.nutritionLogs || [])}
-- Entraînements prévus : ${JSON.stringify(contextData?.workouts || [])}
-- Mémoire précédente : ${contextData?.memory || 'Rien à signaler'}
+      const systemPrompt = `Tu es Bioflow, un coach de nutrition sportive de niveau olympique intégré dans l'application BioAthlete, spécialisé en physiologie et en planification nutritionnelle (méthode Bompa/Issurin). Tu parles directement à l'athlète. Tu n'es PAS une IA généraliste — tu es un expert humain virtuel. Ne dis JAMAIS "En tant qu'intelligence artificielle" ou similaire. Assume ton rôle de coach.
+
+Données réelles de l'athlète en base :
+- Poids : ${contextData?.profile?.weightkg || 'Non renseigné'} kg | Taille : ${contextData?.profile?.heightcm || 'Non renseigné'} cm
+- Objectifs caloriques : ${contextData?.nutrition?.target_calories || 'Non défini'} kcal/j
+- Macros cibles : P=${contextData?.nutrition?.target_proteins || '?'}g / G=${contextData?.nutrition?.target_carbs || '?'}g / L=${contextData?.nutrition?.target_fats || '?'}g
+- Historique repas (3 derniers jours) : ${JSON.stringify(contextData?.nutritionLogs || [])}
+- Entraînements (±10 jours) : ${JSON.stringify(contextData?.workouts || [])}
+- Dernier bilan de forme : ${contextData?.todayCheckin ? JSON.stringify(contextData.todayCheckin) : 'Aucun bilan récent'}${contextData?.hasPainToday ? '\n⚠️ DOULEUR SIGNALÉE : Adapte ton discours pour proposer de la récupération active, du repos ou des soins. Ne propose PAS d\'exercices intenses.' : ''}
+- Mémoire : ${contextData?.memory || 'Rien à signaler'}
 
 ${stateInstruction}
 
-RÈGLES IMPORTANTES:
-1. Sois extrêmement concis (adapté à un affichage sur smartphone).
-2. Agis comme un vrai nutritionniste humain et chaleureux (utilise des emojis).
-3. Utilise ses vraies données chiffrées dans tes réponses. S'il te demande ce qu'il a mangé, lis l'historique de repas.
-4. Si tu apprends une préférence ou une habitude importante de l'athlète au cours de la discussion, inclus la balise <update_memory>Texte de la préférence</update_memory> à la fin de ta réponse. L'application la sauvegardera.`;
+RÈGLES IMPÉRATIVES:
+1. Sois concis et structuré — bullet points et émojis pour la lisibilité mobile.
+2. Utilise SES vraies données chiffrées. Ne génère jamais de valeurs fictives.
+3. Sois direct, motivant, empathique — comme un vrai coach.
+4. En mode CHAT libre, termine par 2-3 suggestions cliquables via : <quick_replies>["Suggestion 1", "Suggestion 2"]</quick_replies>
+5. Si tu apprends une info importante, sauvegarde via <update_memory>Texte</update_memory>.`;
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
@@ -199,6 +204,17 @@ RÈGLES IMPORTANTES:
       
       let generatedResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Désolé, je n'ai pas pu formuler de réponse.";
       let shouldReturnToHub = false;
+
+      // Parse <quick_replies> XML tag (chat mode only)
+      if (generatedResponse.includes('<quick_replies>')) {
+        const qrMatch = generatedResponse.match(/<quick_replies>(\[.*?\])<\/quick_replies>/s);
+        if (qrMatch) {
+          try { setQuickReplies(JSON.parse(qrMatch[1])); } catch(e) { setQuickReplies([]); }
+        }
+        generatedResponse = generatedResponse.replace(/<quick_replies>[\s\S]*?<\/quick_replies>/, '').trim();
+      } else {
+        setQuickReplies([]);
+      }
 
       // Parse and execute XML Tags
       if (generatedResponse.includes('<update_macros>')) {
@@ -253,7 +269,12 @@ RÈGLES IMPORTANTES:
       }
 
     } catch (error: any) {
-      setMessages(prev => [...prev, { id: Date.now().toString(), text: `Erreur de connexion à l'IA : ${error.message}`, isUser: false }]);
+      // Human-friendly error injected as a chat bubble — no Alert
+      setMessages(prev => [...prev, { 
+        id: Date.now().toString(), 
+        text: "Oups, je réfléchis un peu trop lentement… 🧠 Donne-moi une seconde pour reprendre mon souffle. Réessaie dans un instant !", 
+        isUser: false 
+      }]);
     } finally {
       setIsTyping(false);
     }
@@ -424,6 +445,10 @@ RÈGLES IMPORTANTES:
             ))}
           </ScrollView>
         )}
+        <QuickReplies 
+          suggestions={viewState === VIEW_STATES.CHAT ? quickReplies : []}
+          onSelect={(text) => { setQuickReplies([]); sendMessage(text); }}
+        />
         <View style={styles.inputRow}>
           <TextInput
             style={[styles.input, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}

@@ -1,7 +1,11 @@
-import React from 'react';
-import { Text, Switch } from 'react-native';
+import React, { useState } from 'react';
+import { Text, Switch, View, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../hooks/useThemeColor';
+import * as WebBrowser from 'expo-web-browser';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Layout } from '../constants/Layout';
+import { Typography } from '../constants/Typography';
 
 export interface ProfileMenuItem {
   label: string;
@@ -15,6 +19,8 @@ export interface ProfileMenuSection {
   items: ProfileMenuItem[];
 }
 
+const BASE_URL = 'https://bioathlete.space';
+
 export function useProfileMenu(): ProfileMenuSection[] {
   const theme = useTheme();
   const router = useRouter();
@@ -26,8 +32,8 @@ export function useProfileMenu(): ProfileMenuSection[] {
         { label: 'Mon compte', icon: 'person-outline', onPress: () => router.push('/profile/account') },
         { label: 'Mon groupe', icon: 'groups', onPress: () => router.push('/profile/group') },
         { label: 'Mon Coach LLM', icon: 'smart-toy', onPress: () => router.push('/profile/coach') },
-        { label: 'Appareils connectés', icon: 'watch' },
-        { label: 'Modifier le mot de passe', icon: 'lock-outline' },
+        { label: 'Appareils connectés', icon: 'watch', onPress: () => router.push('/profile/devices') },
+        { label: 'Modifier le mot de passe', icon: 'lock-outline', onPress: () => router.push('/profile/password') },
       ],
     },
     {
@@ -40,24 +46,24 @@ export function useProfileMenu(): ProfileMenuSection[] {
     {
       title: 'Préférences',
       items: [
-        { label: 'Langue', icon: 'language', right: <Text style={{ color: theme.icon }}>Français</Text> },
+        { label: 'Langue', icon: 'language', right: <Text style={{ color: theme.icon }}>Français</Text>, onPress: () => {} },
         { label: 'Thème sombre', icon: 'dark-mode', right: <Switch value={true} /> },
       ],
     },
     {
       title: 'Aide',
       items: [
-        { label: 'FAQ', icon: 'help-outline' },
-        { label: 'Besoin d\'aide', icon: 'support-agent' },
-        { label: 'Signaler un problème', icon: 'report-problem' },
+        { label: 'FAQ', icon: 'help-outline', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/faq`) },
+        { label: "Besoin d'aide", icon: 'support-agent', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/support`) },
+        { label: 'Signaler un problème', icon: 'report-problem', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/report`) },
       ],
     },
     {
       title: 'À propos',
       items: [
-        { label: 'CGU', icon: 'description' },
-        { label: 'Mentions légales', icon: 'gavel' },
-        { label: 'Politique de confidentialité', icon: 'privacy-tip' },
+        { label: 'CGU', icon: 'description', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/cgu`) },
+        { label: 'Mentions légales', icon: 'gavel', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/mentions-legales`) },
+        { label: 'Politique de confidentialité', icon: 'privacy-tip', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/confidentialite`) },
       ],
     },
   ];

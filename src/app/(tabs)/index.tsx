@@ -29,6 +29,7 @@ export default function HomeScreen() {
   const [loadingWorkout, setLoadingWorkout] = useState(true);
   const [weatherSummary, setWeatherSummary] = useState<any>(null);
   const [weatherLocationName, setWeatherLocationName] = useState<string>('Météo');
+  const [weatherAlert, setWeatherAlert] = useState<string | null>(null);
   
   const [homeNutrition, setHomeNutrition] = useState({ remainingCals: 0, weight: 0 });
 
@@ -183,11 +184,25 @@ export default function HomeScreen() {
           setWeatherLocationName(name);
           const data = await fetchWeather(lat, lon);
           if (data && data.weather?.current) {
+            const code = data.weather.current.weathercode;
+            const windspeed = data.weather.current.windspeed_10m;
             setWeatherSummary({
               temp: data.weather.current.temperature_2m,
-              code: data.weather.current.weathercode,
-              windspeed: data.weather.current.windspeed_10m,
+              code,
+              windspeed,
             });
+            // Detect dangerous conditions
+            const dangerCodes = [95, 96, 99]; // Thunderstorm
+            const iceCodes = [71, 73, 75, 77]; // Snow/Sleet
+            if (dangerCodes.includes(code)) {
+              setWeatherAlert('⚡ Danger : Orage détecté. Entraînement en extérieur déconseillé.');
+            } else if (iceCodes.includes(code)) {
+              setWeatherAlert('❄️ Attention : Risque de verglas. Prudence sur les pistes.');
+            } else if (windspeed > 60) {
+              setWeatherAlert(`💨 Alerte Vent : ${Math.round(windspeed)} km/h. Adaptez votre séance.`);
+            } else {
+              setWeatherAlert(null);
+            }
           }
         } catch (e) {
           console.log("Weather error", e);
@@ -248,7 +263,7 @@ export default function HomeScreen() {
         leftContent={
           <View style={styles.headerLeft}>
             <Text style={{ fontSize: 22, fontWeight: '600', color: theme.text, letterSpacing: -0.5 }}>
-              Salut {profile.prenom || 'Athlète'}
+              Salut {profile.firstname || 'Athlète'}
             </Text>
           </View>
         }
@@ -305,8 +320,14 @@ export default function HomeScreen() {
       </Modal>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* 1. SCORE DE PRÉPARATION (Check-in Énorme) */}
+
+        {/* WEATHER ALERT BANNER */}
+        {weatherAlert && (
+          <View style={{ backgroundColor: '#EF4444', borderRadius: 12, padding: 12, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
+            <MaterialIcons name="warning" size={20} color="#FFF" style={{ marginRight: 8 }} />
+            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13, flex: 1 }}>{weatherAlert}</Text>
+          </View>
+        )}
         <TouchableOpacity activeOpacity={0.9} onPress={() => router.push('/checkin')}>
           <Card style={[styles.checkinCard, { padding: 24, marginBottom: 20 }]}>
             {todayScore !== null ? (
