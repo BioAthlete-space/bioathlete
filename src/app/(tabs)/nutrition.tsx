@@ -51,11 +51,31 @@ export default function NutritionScreen() {
   const [checkinAlert, setCheckinAlert] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Nouvel état pour les données corporelles et les repas
+  const [bodyStats, setBodyStats] = useState<{ weightkg?: number; body_fat_percentage?: number; muscle_mass_percentage?: number }>({});
+  const [mealsData, setMealsData] = useState<Record<string, number>>({
+    'Petit-déjeuner': 0,
+    'Déjeuner': 0,
+    'Collation': 0,
+    'Dîner': 0
+  });
+
   useEffect(() => {
     const fetchLog = async () => {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+
+      // Fetch user profile for body stats
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('weightkg, body_fat_percentage, muscle_mass_percentage')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (userProfile) {
+        setBodyStats(userProfile);
+      }
 
       // Fetch goals and checkin status
       const { data: profile } = await supabase
@@ -93,8 +113,33 @@ export default function NutritionScreen() {
           carbs: Number(data.total_carbs || 0),
           fats: Number(data.total_fats || 0)
         });
+
+        // Fetch entries for meal totals
+        const { data: entries } = await supabase
+          .from('nutrition_entries')
+          .select('meal_type, calories')
+          .eq('log_id', data.id);
+
+        if (entries) {
+          const newMealsData: Record<string, number> = {
+            'Petit-déjeuner': 0,
+            'Déjeuner': 0,
+            'Collation': 0,
+            'Dîner': 0
+          };
+          entries.forEach((entry) => {
+            if (entry.meal_type === 'breakfast') newMealsData['Petit-déjeuner'] += Number(entry.calories || 0);
+            if (entry.meal_type === 'lunch') newMealsData['Déjeuner'] += Number(entry.calories || 0);
+            if (entry.meal_type === 'snack') newMealsData['Collation'] += Number(entry.calories || 0);
+            if (entry.meal_type === 'dinner') newMealsData['Dîner'] += Number(entry.calories || 0);
+          });
+          setMealsData(newMealsData);
+        } else {
+          setMealsData({ 'Petit-déjeuner': 0, 'Déjeuner': 0, 'Collation': 0, 'Dîner': 0 });
+        }
       } else {
         setDailyData({ calories: 0, proteins: 0, carbs: 0, fats: 0 });
+        setMealsData({ 'Petit-déjeuner': 0, 'Déjeuner': 0, 'Collation': 0, 'Dîner': 0 });
       }
       setLoading(false);
     };
@@ -269,7 +314,9 @@ export default function NutritionScreen() {
               <Text style={[styles.sectionTitle, { color: theme.text, marginTop: Layout.spacing.lg, marginBottom: Layout.spacing.sm }]}>Alimentation</Text>
             </View>
             
-            {['Petit-déjeuner', 'Déjeuner', 'Collation', 'Dîner'].map((mealName, index) => (
+            {['Petit-déjeuner', 'Déjeuner', 'Collation', 'Dîner'].map((mealName, index) => {
+              const mealCalories = mealsData[mealName] || 0;
+              return (
               <TouchableOpacity 
                 key={index} 
                 style={StyleSheet.flatten([styles.mealCard, { backgroundColor: theme.card, borderColor: theme.border }])}
@@ -280,7 +327,13 @@ export default function NutritionScreen() {
                 </View>
                 <View style={styles.mealInfo}>
                   <Text style={[styles.mealName, { color: theme.text }]}>{mealName}</Text>
-                  <Text style={[styles.mealEmpty, { color: theme.icon, marginTop: 2 }]}>Ajouter un aliment</Text>
+                  {mealCalories > 0 ? (
+                    <Text style={[styles.mealEmpty, { color: theme.primary, marginTop: 2, fontWeight: 'bold' }]}>
+                      {mealCalories} kcal consommées
+                    </Text>
+                  ) : (
+                    <Text style={[styles.mealEmpty, { color: theme.icon, marginTop: 2 }]}>Ajouter un aliment</Text>
+                  )}
                 </View>
                 <Link href={{ pathname: '/nutrition/add', params: { meal: mealName, date: selectedDateId } }} asChild>
                   <TouchableOpacity 
@@ -290,30 +343,38 @@ export default function NutritionScreen() {
                   </TouchableOpacity>
                 </Link>
               </TouchableOpacity>
-            ))}
+            )})}
           </Animated.View>
 
+          {(bodyStats.weightkg != null || bodyStats.body_fat_percentage != null || bodyStats.muscle_mass_percentage != null) && (
           <Animated.View entering={FadeInUp.delay(500).springify()}>
             {/* Suivi Corporel Refonte */}
             <Text style={[styles.sectionTitle, { color: theme.text, marginTop: Layout.spacing.xl, marginBottom: Layout.spacing.sm }]}>Suivi Corporel</Text>
             <View style={styles.bodyStatsGrid}>
-              <Card style={styles.bodyStatCard} elevation="none">
-                <MaterialIcons name="monitor-weight" size={24} color={theme.primary} />
-                <Text style={[styles.bodyStatValue, { color: theme.text }]}>74.5 <Text style={styles.bodyStatUnit}>kg</Text></Text>
-                <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Poids</Text>
-              </Card>
-              <Card style={styles.bodyStatCard} elevation="none">
-                <MaterialIcons name="pie-chart" size={24} color={'#F59E0B'} />
-                <Text style={[styles.bodyStatValue, { color: theme.text }]}>12.5 <Text style={styles.bodyStatUnit}>%</Text></Text>
-                <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Masse grasse</Text>
-              </Card>
-              <Card style={styles.bodyStatCard} elevation="none">
-                <MaterialIcons name="fitness-center" size={24} color={'#3B82F6'} />
-                <Text style={[styles.bodyStatValue, { color: theme.text }]}>45.2 <Text style={styles.bodyStatUnit}>%</Text></Text>
-                <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Muscles</Text>
-              </Card>
+              {bodyStats.weightkg != null && (
+                <Card style={styles.bodyStatCard} elevation="none">
+                  <MaterialIcons name="monitor-weight" size={24} color={theme.primary} />
+                  <Text style={[styles.bodyStatValue, { color: theme.text }]}>{bodyStats.weightkg} <Text style={styles.bodyStatUnit}>kg</Text></Text>
+                  <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Poids</Text>
+                </Card>
+              )}
+              {bodyStats.body_fat_percentage != null && (
+                <Card style={styles.bodyStatCard} elevation="none">
+                  <MaterialIcons name="pie-chart" size={24} color={'#F59E0B'} />
+                  <Text style={[styles.bodyStatValue, { color: theme.text }]}>{bodyStats.body_fat_percentage} <Text style={styles.bodyStatUnit}>%</Text></Text>
+                  <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Masse grasse</Text>
+                </Card>
+              )}
+              {bodyStats.muscle_mass_percentage != null && (
+                <Card style={styles.bodyStatCard} elevation="none">
+                  <MaterialIcons name="fitness-center" size={24} color={'#3B82F6'} />
+                  <Text style={[styles.bodyStatValue, { color: theme.text }]}>{bodyStats.muscle_mass_percentage} <Text style={styles.bodyStatUnit}>%</Text></Text>
+                  <Text style={[styles.bodyStatLabel, { color: theme.icon }]}>Muscles</Text>
+                </Card>
+              )}
             </View>
           </Animated.View>
+          )}
             </View>
           </ScrollView>
         </Animated.View>
