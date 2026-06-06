@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Image,
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTheme } from '../../../hooks/useThemeColor';
@@ -20,19 +19,23 @@ import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 
 interface AthleteProfile {
   id: string;
-  prenom: string;
-  nom: string;
+  firstname: string;
+  lastname: string;
   email: string;
   weightkg: number | null;
   heightcm: number | null;
+  maindiscipline: string | null;
 }
 
-interface DailyCheckin {
+interface Checkin {
   date: string;
-  energy_level: number | null;
-  mood: string | null;
-  has_pain: boolean | null;
-  notes: string | null;
+  haspain: boolean | null;
+  fatigue: number | null;
+  motivation: number | null;
+  sleephours: number | null;
+  sleepquality: number | null;
+  wakeupfeeling: number | null;
+  score: number | null;
 }
 
 interface Workout {
@@ -50,10 +53,18 @@ interface NutritionProfile {
   target_calories: number | null;
 }
 
+interface CoachPeriodization {
+  id: string;
+  name: string;
+  color: string | null;
+  start_date: string;
+  end_date: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getInitials(prenom: string, nom: string): string {
-  return `${(prenom?.[0] ?? '').toUpperCase()}${(nom?.[0] ?? '').toUpperCase()}`;
+function getInitials(firstname: string, lastname: string): string {
+  return `${(firstname?.[0] ?? '').toUpperCase()}${(lastname?.[0] ?? '').toUpperCase()}`;
 }
 
 function formatDate(dateStr: string): string {
@@ -69,25 +80,10 @@ function getTodayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function moodEmoji(mood: string | null): string {
-  if (!mood) return '—';
-  const map: Record<string, string> = {
-    great: '😄',
-    good: '🙂',
-    neutral: '😐',
-    bad: '😞',
-    terrible: '😩',
-    fatigué: '😴',
-    motivé: '💪',
-    stressé: '😰',
-  };
-  return map[mood.toLowerCase()] ?? mood;
-}
-
-function energyStars(level: number | null): string {
+function levelBar(level: number | null, max: number = 10): string {
   if (level == null) return '—';
-  const filled = Math.min(Math.max(Math.round(level), 0), 5);
-  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+  const filled = Math.min(Math.max(Math.round(level), 0), max);
+  return '█'.repeat(filled) + '░'.repeat(max - filled);
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -101,11 +97,12 @@ export default function AthleteProfileScreen() {
 
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
-  const [checkin, setCheckin] = useState<DailyCheckin | null>(null);
+  const [checkin, setCheckin] = useState<Checkin | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([]);
   const [upcomingWorkouts, setUpcomingWorkouts] = useState<Workout[]>([]);
   const [caloriesToday, setCaloriesToday] = useState<number>(0);
   const [targetCalories, setTargetCalories] = useState<number | null>(null);
+  const [periodizations, setPeriodizations] = useState<CoachPeriodization[]>([]);
 
   useEffect(() => {
     if (!athleteId) return;
@@ -121,31 +118,32 @@ export default function AthleteProfileScreen() {
           upcomingRes,
           nutritionLogRes,
           nutritionProfileRes,
+          groupMembersRes,
         ] = await Promise.all([
           // 1. Athlete profile
           supabase
             .from('profiles')
-            .select('id, prenom, nom, email, weightkg, heightcm')
+            .select('id, firstname, lastname, email, weightkg, heightcm, maindiscipline')
             .eq('id', athleteId)
             .single(),
 
           // 2. Last check-in
           supabase
-            .from('daily_checkins')
-            .select('date, energy_level, mood, has_pain, notes')
-            .eq('athlete_id', athleteId)
+            .from('checkins')
+            .select('date, haspain, fatigue, motivation, sleephours, sleepquality, wakeupfeeling, score')
+            .eq('user_id', athleteId)
             .order('date', { ascending: false })
             .limit(1)
             .maybeSingle(),
 
-          // 3. Last 5 past workouts
+          // 3. Last 3 past workouts
           supabase
             .from('workouts')
             .select('id, title, name, date')
             .eq('athlete_id', athleteId)
             .lte('date', today)
             .order('date', { ascending: false })
-            .limit(5),
+            .limit(3),
 
           // 4. Next 3 upcoming workouts
           supabase
@@ -169,13 +167,19 @@ export default function AthleteProfileScreen() {
             .select('target_calories')
             .eq('athlete_id', athleteId)
             .maybeSingle(),
+
+          // 7. Athlete's group memberships
+          supabase
+            .from('group_members')
+            .select('group_id')
+            .eq('user_id', athleteId),
         ]);
 
         if (profileRes.data) setProfile(profileRes.data as AthleteProfile);
-        if (checkinRes.data) setCheckin(checkinRes.data as DailyCheckin);
+        if (checkinRes.data) setCheckin(checkinRes.data as Checkin);
 
         if (recentRes.data) {
-          setRecentWorkouts((recentRes.data as Workout[]).slice(0, 3));
+          setRecentWorkouts(recentRes.data as Workout[]);
         }
         if (upcomingRes.data) {
           setUpcomingWorkouts(upcomingRes.data as Workout[]);
@@ -193,6 +197,22 @@ export default function AthleteProfileScreen() {
           setTargetCalories(
             (nutritionProfileRes.data as NutritionProfile).target_calories
           );
+        }
+
+        // 8. Fetch upcoming periodizations for the athlete's groups
+        if (groupMembersRes.data && groupMembersRes.data.length > 0) {
+          const groupIds = groupMembersRes.data.map((m: { group_id: string }) => m.group_id);
+          const periodizationsRes = await supabase
+            .from('coach_periodizations')
+            .select('id, name, color, start_date, end_date')
+            .in('group_id', groupIds)
+            .gte('start_date', today)
+            .order('start_date', { ascending: true })
+            .limit(3);
+
+          if (periodizationsRes.data) {
+            setPeriodizations(periodizationsRes.data as CoachPeriodization[]);
+          }
         }
       } catch (err) {
         console.error('[AthleteProfile] fetch error:', err);
@@ -218,10 +238,10 @@ export default function AthleteProfileScreen() {
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const fullName = profile
-    ? `${profile.prenom ?? ''} ${profile.nom ?? ''}`.trim()
+    ? `${profile.firstname ?? ''} ${profile.lastname ?? ''}`.trim()
     : 'Athlète';
 
-  const hasPain = checkin?.has_pain === true;
+  const hasPain = checkin?.haspain === true;
   const statusColor = hasPain ? '#EF4444' : '#10B981';
   const statusLabel = hasPain ? 'Douleur signalée' : 'En forme';
   const statusIcon: keyof typeof MaterialIcons.glyphMap = hasPain
@@ -263,7 +283,7 @@ export default function AthleteProfileScreen() {
             <View style={styles.heroRow}>
               <View style={[styles.avatarCircle, { backgroundColor: theme.primary }]}>
                 <Text style={styles.avatarInitials}>
-                  {profile ? getInitials(profile.prenom ?? '', profile.nom ?? '') : '?'}
+                  {profile ? getInitials(profile.firstname ?? '', profile.lastname ?? '') : '?'}
                 </Text>
               </View>
 
@@ -272,6 +292,12 @@ export default function AthleteProfileScreen() {
                 {profile?.email ? (
                   <Text style={[styles.heroEmail, { color: theme.icon }]}>
                     {profile.email}
+                  </Text>
+                ) : null}
+
+                {profile?.maindiscipline ? (
+                  <Text style={[styles.heroDiscipline, { color: theme.primary }]}>
+                    {profile.maindiscipline}
                   </Text>
                 ) : null}
 
@@ -328,28 +354,74 @@ export default function AthleteProfileScreen() {
                   </Text>
                 </View>
 
-                {/* Energy */}
+                {/* Score global */}
+                {checkin.score != null && (
+                  <View style={styles.checkinRow}>
+                    <MaterialIcons name="stars" size={16} color={theme.icon} />
+                    <Text style={[styles.checkinLabel, { color: theme.icon }]}>Score</Text>
+                    <View style={[styles.scoreBadge, { backgroundColor: theme.primary + '20' }]}>
+                      <Text style={[styles.scoreText, { color: theme.primary }]}>
+                        {checkin.score}/100
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Fatigue */}
                 <View style={styles.checkinRow}>
-                  <MaterialIcons name="bolt" size={16} color={theme.icon} />
-                  <Text style={[styles.checkinLabel, { color: theme.icon }]}>Énergie</Text>
-                  <Text style={[styles.energyStars, { color: '#F59E0B' }]}>
-                    {energyStars(checkin.energy_level)}
+                  <MaterialIcons name="battery-alert" size={16} color={theme.icon} />
+                  <Text style={[styles.checkinLabel, { color: theme.icon }]}>Fatigue</Text>
+                  <Text style={[styles.levelBar, { color: '#F59E0B' }]}>
+                    {levelBar(checkin.fatigue)}
                   </Text>
-                  {checkin.energy_level != null && (
-                    <Text style={[styles.checkinValue, { color: theme.icon }]}>
-                      {' '}({checkin.energy_level}/5)
+                  {checkin.fatigue != null && (
+                    <Text style={[styles.levelNum, { color: theme.icon }]}>
+                      {checkin.fatigue}/10
                     </Text>
                   )}
                 </View>
 
-                {/* Mood */}
+                {/* Motivation */}
                 <View style={styles.checkinRow}>
-                  <MaterialIcons name="mood" size={16} color={theme.icon} />
-                  <Text style={[styles.checkinLabel, { color: theme.icon }]}>Humeur</Text>
-                  <Text style={[styles.checkinValue, { color: theme.text }]}>
-                    {moodEmoji(checkin.mood)}{checkin.mood ? `  ${checkin.mood}` : ''}
+                  <MaterialIcons name="bolt" size={16} color={theme.icon} />
+                  <Text style={[styles.checkinLabel, { color: theme.icon }]}>Motivation</Text>
+                  <Text style={[styles.levelBar, { color: '#10B981' }]}>
+                    {levelBar(checkin.motivation)}
                   </Text>
+                  {checkin.motivation != null && (
+                    <Text style={[styles.levelNum, { color: theme.icon }]}>
+                      {checkin.motivation}/10
+                    </Text>
+                  )}
                 </View>
+
+                {/* Sleep hours */}
+                {checkin.sleephours != null && (
+                  <View style={styles.checkinRow}>
+                    <MaterialIcons name="bedtime" size={16} color={theme.icon} />
+                    <Text style={[styles.checkinLabel, { color: theme.icon }]}>Sommeil</Text>
+                    <Text style={[styles.checkinValue, { color: theme.text }]}>
+                      {checkin.sleephours}h
+                      {checkin.sleepquality != null
+                        ? `  · qualité ${checkin.sleepquality}/10`
+                        : ''}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Wakeup feeling */}
+                {checkin.wakeupfeeling != null && (
+                  <View style={styles.checkinRow}>
+                    <MaterialIcons name="wb-sunny" size={16} color={theme.icon} />
+                    <Text style={[styles.checkinLabel, { color: theme.icon }]}>Réveil</Text>
+                    <Text style={[styles.levelBar, { color: '#6366F1' }]}>
+                      {levelBar(checkin.wakeupfeeling)}
+                    </Text>
+                    <Text style={[styles.levelNum, { color: theme.icon }]}>
+                      {checkin.wakeupfeeling}/10
+                    </Text>
+                  </View>
+                )}
 
                 {/* Pain */}
                 <View style={styles.checkinRow}>
@@ -362,20 +434,10 @@ export default function AthleteProfileScreen() {
                     ]}
                   >
                     <Text style={{ color: hasPain ? '#EF4444' : '#10B981', fontSize: Typography.sizes.sm, fontWeight: Typography.weights.semibold }}>
-                      {checkin.has_pain ? 'Oui' : 'Non'}
+                      {checkin.haspain ? 'Oui' : 'Non'}
                     </Text>
                   </View>
                 </View>
-
-                {/* Notes */}
-                {checkin.notes ? (
-                  <View style={[styles.notesBox, { backgroundColor: theme.surface }]}>
-                    <Text style={[styles.notesLabel, { color: theme.icon }]}>Notes</Text>
-                    <Text style={[styles.notesText, { color: theme.text }]}>
-                      {checkin.notes}
-                    </Text>
-                  </View>
-                ) : null}
               </View>
             )}
           </Card>
@@ -418,8 +480,51 @@ export default function AthleteProfileScreen() {
           </Card>
         </Animated.View>
 
-        {/* ── 4. Séances Récentes ───────────────────────────────────────── */}
+        {/* ── 4. Périodisations à venir ─────────────────────────────────── */}
         <Animated.View entering={FadeInUp.delay(300).duration(400).springify()}>
+          <Card title="Périodisations à venir" elevation="none">
+            {periodizations.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <MaterialIcons name="event-note" size={20} color={theme.icon} />
+                <Text style={[styles.emptyText, { color: theme.icon }]}>
+                  Aucune périodisation planifiée
+                </Text>
+              </View>
+            ) : (
+              periodizations.map((p, index) => (
+                <View
+                  key={p.id}
+                  style={[
+                    styles.periodizationRow,
+                    index < periodizations.length - 1 && {
+                      borderBottomWidth: 1,
+                      borderBottomColor: theme.border,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.periodizationDot,
+                      { backgroundColor: p.color ?? theme.primary },
+                    ]}
+                  />
+                  <View style={styles.periodizationInfo}>
+                    <Text style={[styles.periodizationName, { color: theme.text }]}>
+                      {p.name}
+                    </Text>
+                    <Text style={[styles.periodizationDates, { color: theme.icon }]}>
+                      {formatDate(p.start_date)} → {formatDate(p.end_date)}
+                    </Text>
+                  </View>
+                  <MaterialIcons name="event" size={16} color={p.color ?? theme.primary} />
+                </View>
+              ))
+            )}
+          </Card>
+        </Animated.View>
+
+        {/* ── 5. Séances Récentes ───────────────────────────────────────── */}
+        <Animated.View entering={FadeInUp.delay(400).duration(400).springify()}>
           <Card title="Séances Récentes" elevation="none">
             {recentWorkouts.length === 0 ? (
               <View style={styles.emptyRow}>
@@ -458,8 +563,8 @@ export default function AthleteProfileScreen() {
           </Card>
         </Animated.View>
 
-        {/* ── 5. Prochaines Séances ─────────────────────────────────────── */}
-        <Animated.View entering={FadeInUp.delay(400).duration(400).springify()}>
+        {/* ── 6. Prochaines Séances ─────────────────────────────────────── */}
+        <Animated.View entering={FadeInUp.delay(500).duration(400).springify()}>
           <Card title="Prochaines Séances" elevation="none" style={styles.lastCard}>
             {upcomingWorkouts.length === 0 ? (
               <View style={styles.emptyRow}>
@@ -553,6 +658,11 @@ const styles = StyleSheet.create({
   heroEmail: {
     fontSize: Typography.sizes.sm,
   },
+  heroDiscipline: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    textTransform: 'capitalize',
+  },
   badgesRow: {
     flexDirection: 'row',
     gap: Layout.spacing.sm,
@@ -595,37 +705,35 @@ const styles = StyleSheet.create({
   },
   checkinLabel: {
     fontSize: Typography.sizes.sm,
-    width: 68,
+    width: 76,
   },
   checkinValue: {
     fontSize: Typography.sizes.sm,
     fontWeight: Typography.weights.medium,
     flex: 1,
   },
-  energyStars: {
-    fontSize: Typography.sizes.md,
-    letterSpacing: 2,
+  levelBar: {
+    fontSize: 10,
+    letterSpacing: 1,
+    flex: 1,
+  },
+  levelNum: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.medium,
+  },
+  scoreBadge: {
+    paddingHorizontal: Layout.spacing.sm,
+    paddingVertical: 2,
+    borderRadius: Layout.borderRadius.pill,
+  },
+  scoreText: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.bold,
   },
   painBadge: {
     paddingHorizontal: Layout.spacing.sm,
     paddingVertical: 2,
     borderRadius: Layout.borderRadius.pill,
-  },
-  notesBox: {
-    borderRadius: Layout.borderRadius.md,
-    padding: Layout.spacing.md,
-    marginTop: Layout.spacing.xs,
-    gap: Layout.spacing.xs,
-  },
-  notesLabel: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: Typography.weights.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  notesText: {
-    fontSize: Typography.sizes.sm,
-    lineHeight: 20,
   },
 
   // Nutrition
@@ -651,6 +759,31 @@ const styles = StyleSheet.create({
   progressLabel: {
     fontSize: Typography.sizes.xs,
     textAlign: 'right',
+  },
+
+  // Periodizations
+  periodizationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Layout.spacing.sm,
+    paddingVertical: Layout.spacing.sm,
+  },
+  periodizationDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    flexShrink: 0,
+  },
+  periodizationInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  periodizationName: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+  },
+  periodizationDates: {
+    fontSize: Typography.sizes.xs,
   },
 
   // Workouts
