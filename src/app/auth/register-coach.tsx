@@ -42,8 +42,8 @@ export default function RegisterCoachScreen() {
       await supabase.from('profiles').upsert({
         id: data.user.id,
         role: 'coach',
-        firstName: firstName,
-        lastName: lastName,
+        firstname: firstName,
+        lastname: lastName,
       });
     }
 

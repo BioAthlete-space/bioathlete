@@ -12,7 +12,7 @@ export default function RootLayout() {
     <AuthProvider>
       <View style={{ flex: 1, backgroundColor: theme.background }}>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-        <Stack screenOptions={{ contentStyle: { backgroundColor: theme.background } }}>
+        <Stack screenOptions={{ contentStyle: { backgroundColor: theme.background }, headerShown: false }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="(coach)" options={{ headerShown: false }} />
           <Stack.Screen name="auth" options={{ headerShown: false }} />

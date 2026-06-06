@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Animated, Dimensions, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,9 +8,11 @@ import { Layout } from '../../constants/Layout';
 import { Typography } from '../../constants/Typography';
 import { CustomButton } from '../../components/CustomButton';
 import { Chip } from '../../components/Chip';
+import { WheelColumn } from '../../components/WheelColumn';
 
 const { width } = Dimensions.get('window');
-const TOTAL_STEPS = 7; // On passe de 9 à 7 étapes
+
+const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 const DISCIPLINES = [
   'Sprint', 'Haies', 'Demi-fond', 'Fond', 'Sauts', 'Lancers', 'Épreuves combinées'
@@ -27,7 +29,7 @@ const EPREUVES_BY_DISCIPLINE: Record<string, string[]> = {
 };
 
 const GOALS = [
-  'Battre mon record', 'Préparer une compétition', 'Reprendre l\'entraînement', 
+  'Battre mon record', 'Préparer une compétition', "Reprendre l'entraînement", 
   'Perdre du poids', 'Améliorer ma récupération'
 ];
 
@@ -41,103 +43,153 @@ export default function OnboardingScreen() {
   const [password, setPassword] = useState('');
   const [cguAccepted, setCguAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
-  const [newsletterAccepted, setNewsletterAccepted] = useState(false);
+  
+  const [otpCode, setOtpCode] = useState('');
   
   const [firstName, setFirstName] = useState('');
-  const [mainDiscipline, setMainDiscipline] = useState('');
-  const [epreuves, setEpreuves] = useState<string[]>([]);
-  const [goals, setGoals] = useState<string[]>([]);
+  const [lastName, setLastName] = useState('');
   
+  const [gender, setGender] = useState('Homme');
+  const [day, setDay] = useState(1);
+  const [month, setMonth] = useState('Janvier');
+  const [year, setYear] = useState(2000);
+  const [height, setHeight] = useState(175);
+  
+  const [mainDiscipline, setMainDiscipline] = useState('');
+  const [selectedEpreuves, setSelectedEpreuves] = useState<string[]>([]);
+  const [mainGoal, setMainGoal] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const nextStep = () => {
-    if (step < 6) setStep(step + 1);
-    else if (step === 6) createAccount();
-  };
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
-  const prevStep = () => {
-    if (step > 2) setStep(step - 1);
-    else router.back();
-  };
-
-  const toggleEpreuve = (e: string) => {
-    if (epreuves.includes(e)) {
-      setEpreuves(epreuves.filter(x => x !== e));
-    } else {
-      setEpreuves([...epreuves, e]);
+  // -- API Calls --
+  const handleSignUp = async () => {
+    if (!email || !password || !cguAccepted || !privacyAccepted) {
+      setErrorMsg("Veuillez remplir tous les champs et accepter les conditions.");
+      return;
     }
-  };
-
-  const toggleGoal = (g: string) => {
-    if (goals.includes(g)) {
-      setGoals(goals.filter(x => x !== g));
-    } else {
-      setGoals([...goals, g]);
-    }
-  };
-
-  const createAccount = async () => {
-    setStep(7); // Loading Screen
     setLoading(true);
-    setErrorMsg('');
-
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
     });
-
+    setLoading(false);
     if (error) {
       setErrorMsg(error.message);
-      setLoading(false);
-      setStep(2); // Retour en cas d'erreur
+    } else {
+      setStep(3); // Aller au code OTP
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (otpCode.length < 8) {
+      setErrorMsg("Le code doit contenir 8 chiffres.");
       return;
     }
-
-    if (data.user) {
-      await supabase.from('profiles').upsert({
-        id: data.user.id,
-        role: 'athlete',
-        firstName: firstName,
-        mainDiscipline: mainDiscipline,
-        mesDisciplines: epreuves,
-        mainGoal: goals.join(', '), // On stocke les objectifs multiples séparés par une virgule
-      });
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otpCode,
+      type: 'signup'
+    });
+    setLoading(false);
+    if (error) {
+      setErrorMsg("Code invalide ou expiré.");
+    } else {
+      setStep(4); // Aller au Nom
     }
+  };
 
-    // Le AuthProvider redirigera automatiquement vers /(tabs)
+  const finalizeProfile = async () => {
+    if (!mainGoal) return;
+    setLoading(true);
+    
+    // Obtenir l'utilisateur courant (maintenant connecté grâce à l'OTP)
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (user) {
+      // Date format YYYY-MM-DD
+      const monthIndex = MONTHS.indexOf(month) + 1;
+      const formattedDate = `${year}-${monthIndex.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        role: 'athlete',
+        email: email,
+        firstname: firstName,
+        lastname: lastName,
+        gender: gender,
+        birthdate: formattedDate,
+        height_cm: height,
+        maindiscipline: mainDiscipline,
+        mesdisciplines: selectedEpreuves,
+        maingoal: mainGoal,
+      });
+      
+      if (error) {
+        console.error(error);
+        setErrorMsg("Erreur d'enregistrement du profil.");
+      } else {
+        setStep(11); // Success
+      }
+    }
     setLoading(false);
   };
 
-  const renderProgressBar = () => {
-    // Étape 2 à 6 sont des étapes de formulaire (5 barres)
-    const totalBars = 5;
-    const currentBarIndex = step - 2;
-
-    return (
-      <View style={styles.progressBarContainer}>
-        {Array.from({ length: totalBars }).map((_, i) => (
-          <View 
-            key={i} 
-            style={[
-              styles.progressSegment, 
-              { backgroundColor: i <= currentBarIndex ? theme.primary : theme.surface }
-            ]} 
-          />
-        ))}
-      </View>
-    );
+  const nextStep = () => {
+    setErrorMsg('');
+    if (step === 2) {
+      handleSignUp();
+    } else if (step === 3) {
+      handleVerifyOtp();
+    } else if (step === 4) {
+      if (!firstName || !lastName) { setErrorMsg("Veuillez renseigner votre nom et prénom."); return; }
+      setStep(5);
+    } else if (step === 7) {
+      setStep(8);
+    } else if (step === 8) {
+      if (!mainDiscipline) return;
+      setStep(9);
+    } else if (step === 9) {
+      if (selectedEpreuves.length === 0) return;
+      setStep(10);
+    } else if (step === 10) {
+      finalizeProfile();
+    } else {
+      setStep(step + 1);
+    }
   };
 
-  // ─── ÉCRANS ───
+  const prevStep = () => {
+    setErrorMsg('');
+    if (step > 2 && step < 11) {
+      setStep(step - 1);
+    } else if (step === 2) {
+      router.back();
+    }
+  };
+
+  const toggleEpreuve = (epreuve: string) => {
+    if (selectedEpreuves.includes(epreuve)) {
+      setSelectedEpreuves(prev => prev.filter(e => e !== epreuve));
+    } else {
+      setSelectedEpreuves(prev => [...prev, epreuve]);
+    }
+  };
+
+  // --- RENDERS ---
   const renderStep2 = () => (
     <View style={styles.stepContainer}>
-      <Text style={[styles.title, { color: theme.text }]}>Création du compte</Text>
+      <Text style={[styles.title, { color: theme.text }]}>Créons ton compte 🚀</Text>
       
-      <View style={[styles.inputContainer, { backgroundColor: theme.surface }]}>
+      <View style={styles.inputContainer}>
+        <MaterialIcons name="email" size={20} color={theme.icon} style={styles.inputIcon} />
         <TextInput
           style={[styles.input, { color: theme.text }]}
-          placeholder="Adresse email"
+          placeholder="Email"
           placeholderTextColor={theme.icon}
           value={email}
           onChangeText={setEmail}
@@ -145,11 +197,12 @@ export default function OnboardingScreen() {
           keyboardType="email-address"
         />
       </View>
-      
-      <View style={[styles.inputContainer, { backgroundColor: theme.surface, marginTop: 16 }]}>
+
+      <View style={styles.inputContainer}>
+        <MaterialIcons name="lock" size={20} color={theme.icon} style={styles.inputIcon} />
         <TextInput
           style={[styles.input, { color: theme.text }]}
-          placeholder="Mot de passe (min. 6 car.)"
+          placeholder="Mot de passe"
           placeholderTextColor={theme.icon}
           value={password}
           onChangeText={setPassword}
@@ -157,219 +210,223 @@ export default function OnboardingScreen() {
         />
       </View>
 
-      <View style={{ marginTop: 32, gap: 16 }}>
-        <TouchableOpacity style={styles.checkboxRow} onPress={() => setCguAccepted(!cguAccepted)}>
-          <MaterialIcons name={cguAccepted ? "check-box" : "check-box-outline-blank"} size={24} color={cguAccepted ? theme.primary : theme.icon} />
-          <Text style={[styles.checkboxText, { color: theme.text }]}>J'accepte les Conditions Générales d'Utilisation *</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.checkboxRow} onPress={() => setPrivacyAccepted(!privacyAccepted)}>
-          <MaterialIcons name={privacyAccepted ? "check-box" : "check-box-outline-blank"} size={24} color={privacyAccepted ? theme.primary : theme.icon} />
-          <Text style={[styles.checkboxText, { color: theme.text }]}>J'accepte la Politique de Confidentialité *</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.checkboxRow} onPress={() => setNewsletterAccepted(!newsletterAccepted)}>
-          <MaterialIcons name={newsletterAccepted ? "check-box" : "check-box-outline-blank"} size={24} color={newsletterAccepted ? theme.primary : theme.icon} />
-          <Text style={[styles.checkboxText, { color: theme.text }]}>J'accepte de recevoir les actualités BioAthlete</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity style={styles.checkboxRow} onPress={() => setCguAccepted(!cguAccepted)}>
+        <MaterialIcons name={cguAccepted ? "check-box" : "check-box-outline-blank"} size={24} color={theme.primary} />
+        <Text style={[styles.checkboxText, { color: theme.text }]}>J'accepte les CGU</Text>
+      </TouchableOpacity>
 
-      {errorMsg ? <Text style={{ color: '#F44336', marginTop: 16 }}>{errorMsg}</Text> : null}
-
-      <View style={{ flex: 1 }} />
-      <CustomButton
-        title="Continuer"
-        onPress={nextStep}
-        disabled={!email || password.length < 6 || !cguAccepted || !privacyAccepted}
-        style={{ width: '100%', marginBottom: 16 }}
-      />
-      <TouchableOpacity onPress={() => router.push('/auth')}>
-        <Text style={{ color: theme.primary, textAlign: 'center', fontWeight: 'bold' }}>J'ai déjà un compte</Text>
+      <TouchableOpacity style={styles.checkboxRow} onPress={() => setPrivacyAccepted(!privacyAccepted)}>
+        <MaterialIcons name={privacyAccepted ? "check-box" : "check-box-outline-blank"} size={24} color={theme.primary} />
+        <Text style={[styles.checkboxText, { color: theme.text }]}>J'accepte la politique de confidentialité</Text>
       </TouchableOpacity>
     </View>
   );
 
   const renderStep3 = () => (
     <View style={styles.stepContainer}>
-      <Text style={[styles.title, { color: theme.text }]}>Comment devons-nous vous appeler ?</Text>
-      <View style={[styles.inputContainer, { backgroundColor: theme.surface, marginTop: 32 }]}>
+      <Text style={[styles.title, { color: theme.text }]}>Confirme ton email</Text>
+      <Text style={[styles.subtitle, { color: theme.icon }]}>Un code de sécurité à 8 chiffres t'a été envoyé.</Text>
+      
+      <View style={[styles.inputContainer, { justifyContent: 'center' }]}>
         <TextInput
-          style={[styles.input, { color: theme.text }]}
-          placeholder="Exemple : Kleveens"
+          style={[styles.input, { color: theme.text, fontSize: 24, textAlign: 'center', letterSpacing: 8, padding: 10 }]}
+          placeholder="••••••••"
           placeholderTextColor={theme.icon}
-          value={firstName}
-          onChangeText={setFirstName}
+          value={otpCode}
+          onChangeText={setOtpCode}
+          keyboardType="number-pad"
+          maxLength={8}
         />
       </View>
-      <View style={{ flex: 1 }} />
-      <CustomButton title="Continuer" onPress={nextStep} disabled={!firstName} style={{ width: '100%' }} />
+      <TouchableOpacity style={{ marginTop: 20 }} onPress={handleSignUp}>
+         <Text style={{ color: theme.primary, textAlign: 'center' }}>Je n'ai pas reçu le mail, renvoyer</Text>
+      </TouchableOpacity>
     </View>
   );
 
   const renderStep4 = () => (
     <View style={styles.stepContainer}>
-      <Text style={[styles.title, { color: theme.text }]}>Quelle est votre discipline principale ?</Text>
-      <View style={styles.chipsContainer}>
-        {DISCIPLINES.map(d => (
-          <Chip 
-            key={d} 
-            label={d} 
-            isSelected={mainDiscipline === d} 
-            onPress={() => {
-              setMainDiscipline(d);
-              setEpreuves([]); // On réinitialise les épreuves si on change de discipline
-            }} 
-          />
-        ))}
+      <Text style={[styles.title, { color: theme.text }]}>Quel est ton nom et prénom ?</Text>
+      
+      <View style={styles.inputContainer}>
+        <MaterialIcons name="person" size={20} color={theme.icon} style={styles.inputIcon} />
+        <TextInput
+          style={[styles.input, { color: theme.text }]}
+          placeholder="Prénom"
+          placeholderTextColor={theme.icon}
+          value={firstName}
+          onChangeText={(val) => setFirstName(val.charAt(0).toUpperCase() + val.slice(1))}
+        />
       </View>
-      <View style={{ flex: 1 }} />
-      <CustomButton title="Continuer" onPress={nextStep} disabled={!mainDiscipline} style={{ width: '100%' }} />
+
+      <View style={styles.inputContainer}>
+        <MaterialIcons name="person-outline" size={20} color={theme.icon} style={styles.inputIcon} />
+        <TextInput
+          style={[styles.input, { color: theme.text }]}
+          placeholder="Nom de famille"
+          placeholderTextColor={theme.icon}
+          value={lastName}
+          onChangeText={(val) => setLastName(val.toUpperCase())}
+        />
+      </View>
     </View>
   );
 
   const renderStep5 = () => {
-    const availableEpreuves = mainDiscipline ? EPREUVES_BY_DISCIPLINE[mainDiscipline] : [];
-    
+    const genders = [{ label: 'Homme', value: 'Homme' }, { label: 'Femme', value: 'Femme' }];
     return (
       <View style={styles.stepContainer}>
-        <Text style={[styles.title, { color: theme.text }]}>Quelles sont vos épreuves ?</Text>
-        <Text style={[styles.subtitle, { color: theme.icon }]}>Sélection multiple (au moins une)</Text>
-        <View style={styles.chipsContainer}>
-          {availableEpreuves.map(e => (
-            <Chip key={e} label={e} isSelected={epreuves.includes(e)} onPress={() => toggleEpreuve(e)} />
-          ))}
-        </View>
-        <View style={{ flex: 1 }} />
-        <CustomButton title="Continuer" onPress={nextStep} disabled={epreuves.length === 0} style={{ width: '100%' }} />
+        <Text style={[styles.title, { color: theme.text }]}>Quel est ton sexe ?</Text>
+        <WheelColumn data={genders} value={gender} onChange={(v) => setGender(v as string)} />
       </View>
     );
   };
 
-  const renderStep6 = () => (
+  const renderStep6 = () => {
+    const days = Array.from({ length: 31 }, (_, i) => ({ label: String(i + 1), value: i + 1 }));
+    const months = MONTHS.map(m => ({ label: m, value: m }));
+    const years = Array.from({ length: 70 }, (_, i) => ({ label: String(2025 - i), value: 2025 - i }));
+
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.title, { color: theme.text }]}>Date de naissance</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', height: 200 }}>
+          <View style={{ flex: 1 }}><WheelColumn data={days} value={day} onChange={(v) => setDay(v as number)} /></View>
+          <View style={{ flex: 1 }}><WheelColumn data={months} value={month} onChange={(v) => setMonth(v as string)} /></View>
+          <View style={{ flex: 1 }}><WheelColumn data={years} value={year} onChange={(v) => setYear(v as number)} /></View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderStep7 = () => {
+    const heightsData = Array.from({ length: 151 }, (_, i) => ({ label: `${i + 100} cm`, value: i + 100 }));
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.title, { color: theme.text }]}>Quelle est ta taille ?</Text>
+        <View style={{ height: 200 }}>
+           <WheelColumn data={heightsData} value={height} onChange={(v) => setHeight(v as number)} />
+        </View>
+      </View>
+    );
+  };
+
+  const renderStep8 = () => (
     <View style={styles.stepContainer}>
-      <Text style={[styles.title, { color: theme.text }]}>Quels sont vos objectifs ?</Text>
-      <Text style={[styles.subtitle, { color: theme.icon }]}>Sélection multiple (au moins un)</Text>
-      <View style={styles.verticalChips}>
-        {GOALS.map(g => (
-          <TouchableOpacity 
-            key={g}
-            style={[styles.verticalChip, { backgroundColor: goals.includes(g) ? theme.primary : theme.surface }]}
-            onPress={() => toggleGoal(g)}
-          >
-            <Text style={{ color: goals.includes(g) ? '#fff' : theme.text, fontWeight: 'bold' }}>{g}</Text>
-          </TouchableOpacity>
+      <Text style={[styles.title, { color: theme.text }]}>Quelle est ta discipline principale ?</Text>
+      <View style={styles.chipsContainer}>
+        {DISCIPLINES.map(d => (
+          <Chip key={d} label={d} isSelected={mainDiscipline === d} onPress={() => { setMainDiscipline(d); setSelectedEpreuves([]); }} />
         ))}
       </View>
-      <View style={{ flex: 1 }} />
-      <CustomButton title="Continuer" onPress={nextStep} disabled={goals.length === 0} style={{ width: '100%' }} />
     </View>
   );
 
-  const renderStep7 = () => (
+  const renderStep9 = () => {
+    const availableEpreuves = EPREUVES_BY_DISCIPLINE[mainDiscipline] || [];
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.title, { color: theme.text }]}>Quelles sont tes épreuves ?</Text>
+        <View style={styles.chipsContainer}>
+          {availableEpreuves.map(e => (
+            <Chip key={e} label={e} isSelected={selectedEpreuves.includes(e)} onPress={() => toggleEpreuve(e)} />
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const renderStep10 = () => (
+    <View style={styles.stepContainer}>
+      <Text style={[styles.title, { color: theme.text }]}>Quel est ton objectif principal ?</Text>
+      <View style={styles.chipsContainer}>
+        {GOALS.map(g => (
+          <Chip key={g} label={g} isSelected={mainGoal === g} onPress={() => setMainGoal(g)} />
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderSuccess = () => (
     <View style={[styles.stepContainer, { justifyContent: 'center', alignItems: 'center' }]}>
-      {loading ? (
-        <>
-          <ActivityIndicator size="large" color={theme.primary} />
-          <Text style={[styles.title, { color: theme.text, marginTop: 24 }]}>Création du profil...</Text>
-        </>
-      ) : (
-        <>
-          <Text style={[styles.title, { color: theme.primary, fontSize: 40 }]}>Bienvenue {firstName}</Text>
-          <Text style={[styles.subtitle, { color: theme.icon, marginTop: 8 }]}>BioAthlete est prêt.</Text>
-          <CustomButton title="Commencer" onPress={() => router.replace('/(tabs)')} style={{ width: '100%', marginTop: 48 }} />
-        </>
-      )}
+      <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: theme.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+         <MaterialIcons name="directions-run" size={64} color={theme.primary} />
+      </View>
+      <Text style={[styles.title, { color: theme.text, textAlign: 'center', fontSize: 32 }]}>Wahou, {firstName} !</Text>
+      <Text style={[styles.subtitle, { color: theme.icon, textAlign: 'center', fontSize: 16 }]}>
+        Ton profil est prêt. C'est parti pour exploser tes chronos.
+      </Text>
+      <CustomButton title="Aller à l'accueil" onPress={() => router.replace('/(tabs)')} style={{ marginTop: 40, width: '100%' }} />
     </View>
   );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {step < 7 && (
+      {step < 11 && (
         <View style={styles.header}>
           <TouchableOpacity onPress={prevStep} style={styles.backButton}>
-            <MaterialIcons name="arrow-back" size={24} color={theme.icon} />
+            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
           </TouchableOpacity>
-          {renderProgressBar()}
+          <View style={styles.progressContainer}>
+            <View style={[styles.progressBar, { backgroundColor: theme.card }]}>
+              <Animated.View style={[styles.progressFill, { width: `${((step - 1) / 9) * 100}%`, backgroundColor: theme.primary }]} />
+            </View>
+          </View>
         </View>
       )}
 
-      {step === 2 && renderStep2()}
-      {step === 3 && renderStep3()}
-      {step === 4 && renderStep4()}
-      {step === 5 && renderStep5()}
-      {step === 6 && renderStep6()}
-      {step === 7 && renderStep7()}
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
+        
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
+        {step === 4 && renderStep4()}
+        {step === 5 && renderStep5()}
+        {step === 6 && renderStep6()}
+        {step === 7 && renderStep7()}
+        {step === 8 && renderStep8()}
+        {step === 9 && renderStep9()}
+        {step === 10 && renderStep10()}
+        {step === 11 && renderSuccess()}
+      </ScrollView>
+
+      {step < 11 && (
+        <View style={[styles.footer, { backgroundColor: theme.background }]}>
+          <CustomButton 
+            title={loading ? "Chargement..." : "Continuer"} 
+            onPress={nextStep}
+            disabled={loading}
+          />
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: Layout.spacing.lg,
-    paddingBottom: Layout.spacing.md,
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  progressBarContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 4,
-  },
-  progressSegment: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-  },
-  stepContainer: {
-    flex: 1,
-    padding: Layout.spacing.xl,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '900',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: Typography.sizes.md,
-    marginBottom: 16,
-  },
-  inputContainer: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  input: {
-    padding: 16,
-    fontSize: Typography.sizes.md,
-  },
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  checkboxText: {
-    fontSize: Typography.sizes.sm,
-    flex: 1,
-  },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 24,
-  },
-  verticalChips: {
-    gap: 12,
-    marginTop: 24,
-  },
-  verticalChip: {
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: 60 },
+  backButton: { padding: 8, marginRight: 12 },
+  progressContainer: { flex: 1 },
+  progressBar: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4 },
+  
+  scrollContent: { padding: 24, paddingBottom: 100 },
+  stepContainer: { flex: 1 },
+  
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 12, fontFamily: Typography.weights.bold },
+  subtitle: { fontSize: 16, marginBottom: 32 },
+  
+  inputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(128,128,128,0.2)', borderRadius: Layout.borderRadius.lg, padding: 16, marginBottom: 16 },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, fontSize: 16 },
+  
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  checkboxText: { marginLeft: 12, fontSize: 14 },
+  
+  chipsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  
+  footer: { padding: 24, paddingBottom: 40, borderTopWidth: 1, borderTopColor: 'rgba(128,128,128,0.1)' },
+  
+  errorText: { color: '#FF3B30', marginBottom: 16, textAlign: 'center' }
 });

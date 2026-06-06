@@ -35,9 +35,9 @@ export const ActivityRings: React.FC<ActivityRingsProps> = ({
 
   return (
     <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size}>
-        {/* Rotation de -90deg pour commencer en haut */}
-        <G rotation="-90" origin={`${center}, ${center}`}>
+      <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+        {/* Rotation via style pour éviter l'erreur transform-origin sur le web */}
+        <G>
           {rings.map((ring, index) => {
             const radius = center - strokeWidth / 2 - index * gap;
             if (radius <= 0) return null; // Sécurité si trop d'anneaux
@@ -94,7 +94,7 @@ export const ActivityRings: React.FC<ActivityRingsProps> = ({
         </G>
       </Svg>
       {/* Le centre est laissé vide intentionnellement selon la demande de l'utilisateur */}
-      <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]} pointerEvents="none" />
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]} pointerEvents="none" />
     </View>
   );
 };

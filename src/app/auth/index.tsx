@@ -56,10 +56,10 @@ export default function WelcomeScreen() {
 
   async function signInWithEmail() {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (error) Alert.alert('Erreur', error.message);
-    else router.replace('/(tabs)');
+    else router.replace('/');
   }
 
   const translateY = shiftAnim.interpolate({
@@ -174,7 +174,7 @@ export default function WelcomeScreen() {
 
       <View style={styles.footer}>
         {/* Boutons originaux */}
-        <Animated.View style={{ opacity: shiftAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), pointerEvents: showLogin ? 'none' : 'auto' }}>
+        <Animated.View style={{ width: '100%', opacity: shiftAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), pointerEvents: showLogin ? 'none' : 'auto' }}>
           <CustomButton
             title="Créer un compte"
             onPress={() => router.push('/auth/register')}
@@ -221,6 +221,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   footer: {
+    width: '100%',
     padding: Layout.spacing.xl,
     paddingBottom: Platform.OS === 'ios' ? 40 : Layout.spacing.xl,
     alignItems: 'center',

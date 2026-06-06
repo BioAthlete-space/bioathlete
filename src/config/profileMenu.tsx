@@ -24,7 +24,7 @@ export function useProfileMenu(): ProfileMenuSection[] {
       title: 'Compte',
       items: [
         { label: 'Mon compte', icon: 'person-outline', onPress: () => router.push('/profile/account') },
-        { label: 'Mon groupe', icon: 'groups' },
+        { label: 'Mon groupe', icon: 'groups', onPress: () => router.push('/profile/group') },
         { label: 'Mon Coach LLM', icon: 'smart-toy', onPress: () => router.push('/profile/coach') },
         { label: 'Appareils connectés', icon: 'watch' },
         { label: 'Modifier le mot de passe', icon: 'lock-outline' },

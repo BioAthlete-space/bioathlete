@@ -18,9 +18,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
-          elevation: 0, // Retire l'ombre native Android souvent laide
-          height: Platform.OS === 'ios' ? 88 : 74,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+          elevation: 0,
+          height: Platform.OS === 'ios' ? 90 : 80,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 20,
           paddingTop: 12,
           position: 'absolute',
         },
@@ -42,10 +42,11 @@ export default function TabLayout() {
         ),
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '500',
-          marginTop: 4,
+          fontWeight: '600',
+          marginTop: 2,
         },
-        headerShown: false, // We use custom headers in each screen
+        tabBarShowLabel: true,
+        headerShown: false,
       }}>
       <Tabs.Screen
         name="index"

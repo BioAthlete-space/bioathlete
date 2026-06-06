@@ -12,8 +12,8 @@ interface CustomButtonProps extends PressableProps {
   title: string;
   variant?: 'primary' | 'secondary' | 'outline' | 'danger';
   size?: 'small' | 'medium' | 'large';
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: import('react-native').StyleProp<ViewStyle>;
+  textStyle?: import('react-native').StyleProp<TextStyle>;
   icon?: React.ReactNode;
 }
 
@@ -135,5 +135,6 @@ const styles = StyleSheet.create({
   text: {
     fontWeight: Typography.weights.bold,
     textTransform: 'uppercase', // Très sport/perf
+    textAlign: 'center',
   },
 });

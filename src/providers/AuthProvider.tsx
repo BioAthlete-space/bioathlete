@@ -46,6 +46,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
+        // IMPORTANT: Mettre isLoading à true pendant qu'on récupère le rôle,
+        // sinon l'utilisateur est redirigé vers l'interface athlète par défaut
+        // avant que son rôle coach ne soit chargé.
+        setIsLoading(true);
         fetchUserRole(session.user.id);
       } else {
         setRole(null);

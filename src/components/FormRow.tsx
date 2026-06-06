@@ -33,10 +33,9 @@ export function FormRow({ label, value, placeholder, icon, type = 'select', onPr
             placeholder={placeholder}
             placeholderTextColor={theme.icon}
             onChangeText={onChangeText}
-            textAlign="right"
           />
         ) : (
-          <Text style={[styles.value, { color: value ? theme.primary : theme.icon }]} numberOfLines={2} textAlign="right">
+          <Text style={[styles.value, { color: value ? theme.primary : theme.icon }]} numberOfLines={2}>
             {value || placeholder}
           </Text>
         )}
@@ -94,6 +93,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.md,
     fontWeight: '600',
     flexShrink: 1,
+    textAlign: 'right',
   },
   input: {
     fontSize: Typography.sizes.md,

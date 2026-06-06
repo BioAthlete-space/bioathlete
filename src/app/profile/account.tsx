@@ -158,7 +158,7 @@ export default function AccountScreen() {
         <Card style={styles.card} padding="none">
           <FormRow label="Nom" value={profile.nom} onChangeText={(v) => updateField('nom', v)} type="input" icon="person" />
           <FormRow label="Prénom" value={profile.prenom} onChangeText={(v) => updateField('prenom', v)} type="input" />
-          <FormRow label="Nom d'utilisateur" value={profile.username} onChangeText={(v) => updateField('username', v)} type="input" />
+          <FormRow label="Nom d'utilisateur" value={profile?.prenom + ' ' + profile?.nom} onChangeText={(v) => updateField('nom', v)} type="input" />
           <FormRow label="Email" value={profile.email} onChangeText={(v) => updateField('email', v)} type="input" icon="email" />
           <FormRow label="Date de naissance" value={profile.dateNaissance} type="select" icon="cake" onPress={() => setActiveModal('dateNaissance')} />
           <FormRow label="Sexe" value={profile.sexe} type="select" icon="wc" onPress={() => setActiveModal('sexe')} />

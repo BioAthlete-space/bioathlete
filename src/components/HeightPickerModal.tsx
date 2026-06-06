@@ -61,7 +61,7 @@ export function HeightPickerModal({ visible, onClose, onConfirm, initialHeight }
                 {/* Selection Highlight Bar */}
                 <View style={[styles.selectionHighlight, { backgroundColor: theme.surfaceSecondary }]} />
                 
-                <WheelColumn data={heightsData} selectedValue={height} onValueChange={(v) => setHeight(v as number)} theme={theme} />
+                <WheelColumn data={heightsData} value={height} onChange={(v) => setHeight(v as number)} theme={theme} />
               </View>
 
             </View>

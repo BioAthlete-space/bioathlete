@@ -8,17 +8,20 @@ const VISIBLE_ITEMS = 5;
 
 export interface WheelColumnProps {
   data: Array<{ label: string; value: string | number }>;
-  selectedValue: string | number;
-  onValueChange: (value: string | number) => void;
-  theme: any;
+  value: string | number;
+  onChange: (value: string | number) => void;
+  theme?: any;
 }
+import { useTheme } from '../hooks/useThemeColor';
 
-export function WheelColumn({ data, selectedValue, onValueChange, theme }: WheelColumnProps) {
+export function WheelColumn({ data, value, onChange, theme: propTheme }: WheelColumnProps) {
+  const fallbackTheme = useTheme();
+  const theme = propTheme || fallbackTheme;
   const scrollViewRef = useRef<ScrollView>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    const index = data.findIndex(d => d.value === selectedValue);
+    const index = data.findIndex(d => d.value === value);
     if (index >= 0) {
       setCurrentIndex(index);
       setTimeout(() => {
@@ -33,7 +36,7 @@ export function WheelColumn({ data, selectedValue, onValueChange, theme }: Wheel
     
     if (index !== currentIndex) {
       setCurrentIndex(index);
-      onValueChange(data[index].value);
+      onChange(data[index].value);
       if (Platform.OS !== 'web') {
         Haptics.selectionAsync().catch(() => {});
       }

@@ -1,5 +1,4 @@
 export type SleepQuality = 'Très mauvais' | 'Mauvais' | 'Moyen' | 'Bon' | 'Excellent';
-export type WakeupFeeling = 'Épuisé' | 'Fatigué' | 'Moyen' | 'Bien' | 'Très bien';
 export type PainType = 'Courbatures' | 'Raideur' | 'Gêne' | 'Douleur articulaire' | 'Douleur musculaire' | 'Blessure connue';
 
 export interface PainDetail {
@@ -14,9 +13,9 @@ export interface CheckinData {
   
   sleepHours: number; // 0-12
   sleepQuality: SleepQuality;
-  wakeupFeeling: WakeupFeeling;
   
-  motivation: number; // 0-10
+  menstrualCycle?: string; // e.g. 'Aucune', 'Début de cycle', 'Pendant', 'Fin de cycle'
+  
   fatigue: number; // 0-10
   
   hasPain: boolean;

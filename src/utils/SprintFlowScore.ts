@@ -31,72 +31,25 @@ export function calculateSprintFlowScore(data: Partial<CheckinData>): ScoreResul
     }
   }
 
-  // --- QUALITÉ DU SOMMEIL ---
-  if (data.sleepQuality) {
-    switch (data.sleepQuality) {
-      case 'Très mauvais':
-        score -= 15;
-        summary.push('Qualité de sommeil très mauvaise');
-        break;
-      case 'Mauvais':
-        score -= 10;
-        break;
-      case 'Moyen':
-        score -= 5;
-        break;
-      case 'Bon':
-        score += 0;
-        break;
-      case 'Excellent':
-        score += 3;
-        summary.push('Excellente qualité de sommeil');
-        break;
+
+
+  // --- MENSTRUAL CYCLE ---
+  if (data.menstrualCycle) {
+    if (data.menstrualCycle !== 'Aucune') {
+      summary.push(`Cycle menstruel : ${data.menstrualCycle}`);
+    }
+    if (data.menstrualCycle === 'Pendant' || data.menstrualCycle === 'Début de cycle') {
+      score -= 5; // Légère pondération pour alerter le coach
     }
   }
 
-  // --- RÉVEIL ---
-  if (data.wakeupFeeling) {
-    switch (data.wakeupFeeling) {
-      case 'Épuisé':
-        score -= 15;
-        summary.push('Réveil épuisé');
-        break;
-      case 'Fatigué':
-        score -= 8;
-        break;
-      case 'Moyen':
-        score -= 3;
-        break;
-      case 'Bien':
-        score += 0;
-        break;
-      case 'Très bien':
-        score += 3;
-        summary.push('Très bonne sensation au réveil');
-        break;
-    }
-  }
-
-  // --- MOTIVATION ---
-  if (data.motivation !== undefined) {
-    if (data.motivation <= 3) {
-      score -= 10;
-      summary.push('Motivation très basse');
-    } else if (data.motivation <= 6) {
-      score -= 5;
-    } else if (data.motivation <= 8) {
-      score -= 0;
-    } else {
-      score += 3;
-      summary.push('Forte motivation aujourd\'hui');
-    }
-  }
-
-  // --- FATIGUE ---
+  // --- ÉNERGIE / FATIGUE ---
   if (data.fatigue !== undefined) {
-    score -= data.fatigue * 1.5;
-    if (data.fatigue >= 7) {
-      summary.push('Niveau de fatigue général élevé');
+    // 0 = Épuisé, 10 = Pleine forme
+    const fatigueMalus = (10 - data.fatigue) * 1.5;
+    score -= fatigueMalus;
+    if (data.fatigue <= 3) {
+      summary.push('Niveau d\'énergie très faible');
     }
   }
 

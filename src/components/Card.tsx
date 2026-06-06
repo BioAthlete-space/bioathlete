@@ -8,6 +8,7 @@ import { Typography } from '../constants/Typography';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface CardProps extends ViewProps {
+  padding?: string | number;
   title?: string;
   children: React.ReactNode;
   elevation?: 'none' | 'light' | 'medium';

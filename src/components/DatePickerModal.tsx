@@ -93,9 +93,9 @@ export function DatePickerModal({ visible, onClose, onConfirm, initialDate }: Da
                 {/* Selection Highlight Bar */}
                 <View style={[styles.selectionHighlight, { backgroundColor: theme.surfaceSecondary }]} />
                 
-                <WheelColumn data={daysData} selectedValue={day} onValueChange={(v) => setDay(v as number)} theme={theme} />
-                <WheelColumn data={monthsData} selectedValue={month} onValueChange={(v) => setMonth(v as number)} theme={theme} />
-                <WheelColumn data={yearsData} selectedValue={year} onValueChange={(v) => setYear(v as number)} theme={theme} />
+                <WheelColumn data={daysData} value={day} onChange={(v) => setDay(v as number)} theme={theme} />
+                <WheelColumn data={monthsData} value={month} onChange={(v) => setMonth(v as number)} theme={theme} />
+                <WheelColumn data={yearsData} value={year} onChange={(v) => setYear(v as number)} theme={theme} />
               </View>
 
             </View>

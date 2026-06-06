@@ -188,9 +188,8 @@ export async function saveCheckin(checkin: CheckinData): Promise<boolean> {
         user_id: user.id, // Vrai ID utilisateur
         date: checkin.date,
         sleephours: checkin.sleepHours,
-        sleepquality: checkin.sleepQuality,
-        wakeupfeeling: checkin.wakeupFeeling,
-        motivation: checkin.motivation,
+        sleepquality: null,
+        menstrual_cycle: checkin.menstrualCycle || null,
         fatigue: checkin.fatigue,
         haspain: checkin.hasPain,
         paindetails: checkin.painDetails,

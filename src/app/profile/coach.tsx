@@ -7,6 +7,9 @@ import { Header } from '../../components/Header';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 
+import { BioflowLogo } from '../../components/BioflowLogo';
+import { bioflowStore } from '../../stores/BioflowStore';
+
 export default function CoachLLMScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -21,6 +24,16 @@ export default function CoachLLMScreen() {
     "Motivation"
   ];
 
+  const handleSend = () => {
+    if (!inputText.trim()) return;
+    bioflowStore.trigger('thinking');
+    // simulation de réponse
+    setTimeout(() => {
+      bioflowStore.trigger('success');
+      setInputText('');
+    }, 2000);
+  };
+
   return (
     <KeyboardAvoidingView 
       style={[styles.container, { backgroundColor: theme.background }]} 
@@ -28,7 +41,7 @@ export default function CoachLLMScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
       <Header 
-        title="Coach LLM" 
+        title="Bioflow IA" 
         leftContent={
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <MaterialIcons name="arrow-back" size={24} color={theme.icon} />
@@ -40,9 +53,11 @@ export default function CoachLLMScreen() {
         
         {/* Welcome Message */}
         <View style={styles.welcomeContainer}>
-          <MaterialIcons name="smart-toy" size={64} color={theme.primary} style={styles.botIcon} />
+          <View style={styles.botIcon}>
+            <BioflowLogo size={80} />
+          </View>
           <Text style={[styles.welcomeText, { color: theme.text }]}>
-            Bonjour ! Je suis votre coach IA (modèle local). Comment puis-je vous aider aujourd'hui ?
+            Bonjour ! Je suis Bioflow, votre IA personnalisée. Comment puis-je vous aider aujourd'hui ?
           </Text>
         </View>
 
@@ -76,6 +91,7 @@ export default function CoachLLMScreen() {
         <TouchableOpacity 
           style={[styles.sendButton, { backgroundColor: inputText.length > 0 ? theme.primary : theme.border }]}
           disabled={inputText.length === 0}
+          onPress={handleSend}
         >
           <MaterialIcons name="send" size={20} color="#FFF" />
         </TouchableOpacity>

@@ -74,7 +74,7 @@ export function CircularProgress({
         />
       </Svg>
       {/* Contenu central */}
-      <View style={[StyleSheet.absoluteFillObject, styles.centerContent]} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, styles.centerContent]} pointerEvents="none">
         {children}
       </View>
     </View>
