@@ -53,17 +53,17 @@ export function useProfileMenu(): ProfileMenuSection[] {
     {
       title: 'Aide',
       items: [
-        { label: 'FAQ', icon: 'help-outline', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/faq`) },
-        { label: "Besoin d'aide", icon: 'support-agent', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/support`) },
-        { label: 'Signaler un problème', icon: 'report-problem', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/report`) },
+        { label: 'FAQ', icon: 'help-outline', onPress: () => router.push('/faq') },
+        { label: "Besoin d'aide", icon: 'support-agent', onPress: () => router.push('/support') },
+        { label: 'Signaler un problème', icon: 'report-problem', onPress: () => router.push('/support') },
       ],
     },
     {
       title: 'À propos',
       items: [
-        { label: 'CGU', icon: 'description', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/cgu`) },
-        { label: 'Mentions légales', icon: 'gavel', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/mentions-legales`) },
-        { label: 'Politique de confidentialité', icon: 'privacy-tip', onPress: () => WebBrowser.openBrowserAsync(`${BASE_URL}/confidentialite`) },
+        { label: 'CGU', icon: 'description', onPress: () => router.push('/cgu') },
+        { label: 'Mentions légales', icon: 'gavel', onPress: () => router.push('/mentions-legales') },
+        { label: 'Politique de confidentialité', icon: 'privacy-tip', onPress: () => router.push('/confidentialite') },
       ],
     },
   ];
