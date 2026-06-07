@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Image } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../hooks/useThemeColor';
 import { useAthleteProfile } from '../../hooks/useAthleteProfile';
 import { useAuth } from '../../providers/AuthProvider';
@@ -21,7 +22,7 @@ import { DISCIPLINES } from '../../constants/Disciplines';
 export default function AccountScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -39,7 +40,54 @@ export default function AccountScreen() {
   // ── HOOK DE PERSISTANCE ──
   const { profile, updateField, saveNow, isLoading, isSaving, isSaved, error, hasChanges } = useAthleteProfile();
 
-  const [activeModal, setActiveModal] = useState<'sexe' | 'nationalite' | 'dateNaissance' | 'niveau' | 'niveauFfa' | 'taille' | 'disciplines' | null>(null);
+  const [activeModal, setActiveModal] = useState<'sexe' | 'dateNaissance' | 'taille' | 'disciplines' | null>(null);
+
+  const handleEditPhoto = () => {
+    Alert.alert(
+      'Modifier la photo',
+      'Choisissez une option',
+      [
+        {
+          text: 'Prendre une photo',
+          onPress: async () => {
+            const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+            if (permissionResult.granted === false) {
+              Alert.alert('Permission refusée', 'Vous avez refusé l\'accès à la caméra.');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+              updateField('photoUrl' as any, result.assets[0].uri);
+            }
+          }
+        },
+        {
+          text: 'Choisir depuis la galerie',
+          onPress: async () => {
+            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (permissionResult.granted === false) {
+              Alert.alert('Permission refusée', 'Vous avez refusé l\'accès aux photos.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+              updateField('photoUrl' as any, result.assets[0].uri);
+            }
+          }
+        },
+        { text: 'Annuler', style: 'cancel' }
+      ]
+    );
+  };
 
   const sexeOptions = [
     { label: 'Homme', value: 'Homme', icon: 'male' },
@@ -147,10 +195,14 @@ export default function AccountScreen() {
         
         {/* Photo de profil */}
         <View style={styles.avatarContainer}>
-          <TouchableOpacity style={[styles.avatar, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
-            <MaterialIcons name="camera-alt" size={32} color={theme.icon} />
+          <TouchableOpacity onPress={handleEditPhoto} style={[styles.avatar, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border, overflow: 'hidden' }]}>
+            {(profile as any).photoUrl ? (
+              <Image source={{ uri: (profile as any).photoUrl }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <MaterialIcons name="camera-alt" size={32} color={theme.icon} />
+            )}
           </TouchableOpacity>
-          <Text style={[styles.avatarText, { color: theme.primary }]}>Modifier la photo</Text>
+          <Text style={[styles.avatarText, { color: theme.primary }]} onPress={handleEditPhoto}>Modifier la photo</Text>
         </View>
 
         {/* Section Profil */}
@@ -158,14 +210,9 @@ export default function AccountScreen() {
         <Card style={styles.card} padding="none">
           <FormRow label="Nom" value={profile.nom} onChangeText={(v) => updateField('nom', v)} type="input" icon="person" />
           <FormRow label="Prénom" value={profile.prenom} onChangeText={(v) => updateField('prenom', v)} type="input" />
-          <FormRow label="Nom d'utilisateur" value={profile?.prenom + ' ' + profile?.nom} onChangeText={(v) => updateField('nom', v)} type="input" />
-          <FormRow label="Email" value={profile.email} onChangeText={(v) => updateField('email', v)} type="input" icon="email" />
+          <FormRow label="Email" value={profile.email || user?.email || ''} type="text" icon="email" />
           <FormRow label="Date de naissance" value={profile.dateNaissance} type="select" icon="cake" onPress={() => setActiveModal('dateNaissance')} />
           <FormRow label="Sexe" value={profile.sexe} type="select" icon="wc" onPress={() => setActiveModal('sexe')} />
-          <FormRow label="Nationalité" value={profile.nationalite} type="select" icon="public" onPress={() => setActiveModal('nationalite')} />
-          <FormRow label="Club sportif" value={profile.club} onChangeText={(v) => updateField('club', v)} type="input" icon="shield" />
-          <FormRow label="Niveau sportif" value={profile.niveau} type="select" icon="star" onPress={() => setActiveModal('niveau')} />
-          <FormRow label="Niveau FFA (Optionnel)" value={profile.niveauFfa} type="select" icon="military-tech" onPress={() => setActiveModal('niveauFfa')} />
           <FormRow label="Mes disciplines" value={profile.mesDisciplines.length > 0 ? profile.mesDisciplines.join(', ') : 'Aucune'} type="select" icon="directions-run" onPress={() => setActiveModal('disciplines')} isLast />
         </Card>
 
@@ -182,13 +229,33 @@ export default function AccountScreen() {
           <FormRow label="Langue" value={profile.langue} type="select" icon="language" onPress={() => Alert.alert('À venir', 'Sélection de la langue')} isLast />
         </Card>
 
-        <CustomButton
-          title="Se déconnecter"
-          onPress={handleSignOut}
-          variant="outline"
-          style={{ marginTop: 24, marginBottom: 48, borderColor: '#FF3B30' }}
-          textStyle={{ color: '#FF3B30' }}
-        />
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Sécurité du compte</Text>
+        <Card style={styles.card} padding="none">
+          <FormRow 
+            label="Modifier le mot de passe" 
+            value="" 
+            type="select" 
+            icon="lock" 
+            onPress={() => router.push('/profile/password')} 
+          />
+          <FormRow 
+            label="Supprimer le compte" 
+            value="" 
+            type="select" 
+            icon="delete-forever" 
+            onPress={() => {
+              Alert.alert(
+                'Supprimer le compte', 
+                'Êtes-vous sûr de vouloir supprimer définitivement votre compte ? Cette action est irréversible.',
+                [
+                  { text: 'Annuler', style: 'cancel' },
+                  { text: 'Supprimer', style: 'destructive', onPress: () => Alert.alert('Non implémenté', 'La suppression sera disponible prochainement.') }
+                ]
+              );
+            }} 
+            isLast 
+          />
+        </Card>
 
       </ScrollView>
 
@@ -221,32 +288,6 @@ export default function AccountScreen() {
         title="Sélectionner votre sexe" 
         options={sexeOptions} 
         onSelect={(val) => updateField('sexe', val)} 
-      />
-
-      <SelectionModal 
-        visible={activeModal === 'nationalite'} 
-        onClose={() => setActiveModal(null)} 
-        title="Sélectionner une nationalité" 
-        searchable 
-        options={countryOptions} 
-        onSelect={(val) => updateField('nationalite', val)} 
-      />
-
-      <SelectionModal 
-        visible={activeModal === 'niveau'} 
-        onClose={() => setActiveModal(null)} 
-        title="Niveau sportif" 
-        options={niveauOptions} 
-        onSelect={(val) => updateField('niveau', val)} 
-      />
-
-      <SelectionModal 
-        visible={activeModal === 'niveauFfa'} 
-        onClose={() => setActiveModal(null)} 
-        title="Niveau FFA" 
-        searchable
-        options={niveauFfaOptions} 
-        onSelect={(val) => updateField('niveauFfa', val)} 
       />
 
       <MultiSelectionModal

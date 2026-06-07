@@ -12,21 +12,21 @@ export const CDLogo: React.FC<CDLogoProps> = ({ size = 150, color }) => {
   const iconColor = color || theme.text;
 
   return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
+    <Svg width={size} height={size * (100 / 220)} viewBox="0 0 220 100">
       {/* Left Piece (C) */}
       <Path 
-        d="M 48 25 L 35 25 A 25 25 0 0 0 35 75 L 48 75" 
+        d="M 105 15 L 60 15 A 35 35 0 0 0 60 85 L 105 85" 
         fill="none" 
         stroke={iconColor} 
-        strokeWidth="16" 
+        strokeWidth="30" 
         strokeLinecap="butt" 
       />
       {/* Right Piece (Inverted C) */}
       <Path 
-        d="M 52 25 L 65 25 A 25 25 0 0 1 65 75 L 52 75" 
+        d="M 115 15 L 160 15 A 35 35 0 0 1 160 85 L 115 85" 
         fill="none" 
         stroke={iconColor} 
-        strokeWidth="16" 
+        strokeWidth="30" 
         strokeLinecap="butt" 
       />
     </Svg>

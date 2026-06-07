@@ -173,8 +173,10 @@ export default function AINutritionHubScreen() {
 
 Données réelles de l'athlète en base :
 - Poids : ${contextData?.profile?.weightkg || 'Non renseigné'} kg | Taille : ${contextData?.profile?.heightcm || 'Non renseigné'} cm
+- Niveau d'activité : ${contextData?.nutrition?.activity_level || 'Modéré'}
 - Objectifs caloriques : ${contextData?.nutrition?.target_calories || 'Non défini'} kcal/j
 - Macros cibles : P=${contextData?.nutrition?.target_proteins || '?'}g / G=${contextData?.nutrition?.target_carbs || '?'}g / L=${contextData?.nutrition?.target_fats || '?'}g
+- Répartition des repas : ${JSON.stringify(contextData?.nutrition?.meal_distribution || {})} (Personnalisé: ${contextData?.nutrition?.is_custom_distribution ? 'OUI' : 'NON'})
 - Historique repas (3 derniers jours) : ${JSON.stringify(contextData?.nutritionLogs || [])}
 - Entraînements (±10 jours) : ${JSON.stringify(contextData?.workouts || [])}
 - Dernier bilan de forme : ${contextData?.todayCheckin ? JSON.stringify(contextData.todayCheckin) : 'Aucun bilan récent'}${contextData?.hasPainToday ? '\n⚠️ DOULEUR SIGNALÉE : Adapte ton discours pour proposer de la récupération active, du repos ou des soins. Ne propose PAS d\'exercices intenses.' : ''}
@@ -187,7 +189,8 @@ RÈGLES IMPÉRATIVES:
 2. Utilise SES vraies données chiffrées. Ne génère jamais de valeurs fictives.
 3. Sois direct, motivant, empathique — comme un vrai coach.
 4. En mode CHAT libre, termine par 2-3 suggestions cliquables via : <quick_replies>["Suggestion 1", "Suggestion 2"]</quick_replies>
-5. Si tu apprends une info importante, sauvegarde via <update_memory>Texte</update_memory>.`;
+5. Si tu apprends une info importante, sauvegarde via <update_memory>Texte</update_memory>.
+6. RÈGLE STRICTE SUR LA PERSONNALISATION : Si 'Personnalisé' est 'OUI' (l'athlète a défini manuellement sa répartition ou son activité), TU N'AS PAS LE DROIT de générer <update_macros> pour les changer sans lui demander explicitement son accord avant.`;
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',

@@ -27,43 +27,33 @@ export function useProfileMenu(): ProfileMenuSection[] {
 
   return [
     {
-      title: 'Compte',
+      title: 'Mon Profil',
       items: [
-        { label: 'Mon compte', icon: 'person-outline', onPress: () => router.push('/profile/account') },
+        { label: 'Informations personnelles', icon: 'person-outline', onPress: () => router.push('/profile/account') },
+        { label: 'Mon profil athlétique / Mes objectifs', icon: 'ads-click', onPress: () => router.push('/profile/goals') },
+        { label: 'Régime alimentaire', icon: 'restaurant', right: <Text style={{ color: theme.icon }}>Aucun</Text>, onPress: () => {} },
+      ],
+    },
+    {
+      title: 'Écosystème BioAthlete',
+      items: [
         { label: 'Mon groupe', icon: 'groups', onPress: () => router.push('/profile/group') },
         { label: 'Mon Coach LLM', icon: 'smart-toy', onPress: () => router.push('/profile/coach') },
         { label: 'Appareils connectés', icon: 'watch', onPress: () => router.push('/profile/devices') },
-        { label: 'Modifier le mot de passe', icon: 'lock-outline', onPress: () => router.push('/profile/password') },
       ],
     },
     {
-      title: 'Nutrition',
-      items: [
-        { label: 'Mes objectifs', icon: 'ads-click', onPress: () => router.push('/profile/goals') },
-        { label: 'Régime alimentaire', icon: 'restaurant', right: <Text style={{ color: theme.icon }}>Aucun</Text> },
-      ],
-    },
-    {
-      title: 'Préférences',
+      title: 'Paramètres de l\'application',
       items: [
         { label: 'Langue', icon: 'language', right: <Text style={{ color: theme.icon }}>Français</Text>, onPress: () => {} },
-        { label: 'Thème sombre', icon: 'dark-mode', right: <Switch value={true} /> },
+        { label: 'Thème sombre', icon: 'dark-mode', right: <Switch value={true} disabled /> },
       ],
     },
     {
-      title: 'Aide',
+      title: 'Aide & Informations',
       items: [
-        { label: 'FAQ', icon: 'help-outline', onPress: () => router.push('/faq') },
-        { label: "Besoin d'aide", icon: 'support-agent', onPress: () => router.push('/support') },
-        { label: 'Signaler un problème', icon: 'report-problem', onPress: () => router.push('/support') },
-      ],
-    },
-    {
-      title: 'À propos',
-      items: [
-        { label: 'CGU', icon: 'description', onPress: () => router.push('/cgu') },
-        { label: 'Mentions légales', icon: 'gavel', onPress: () => router.push('/mentions-legales') },
-        { label: 'Politique de confidentialité', icon: 'privacy-tip', onPress: () => router.push('/confidentialite') },
+        { label: 'Aide et support', icon: 'support-agent', onPress: () => router.push('/profile/support') },
+        { label: 'Mentions légales & Confidentialité', icon: 'gavel', onPress: () => router.push('/profile/legal') },
       ],
     },
   ];

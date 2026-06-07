@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Image, ScrollView } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -7,7 +7,9 @@ import { useTheme } from '../../hooks/useThemeColor';
 import { Layout } from '../../constants/Layout';
 import { Typography } from '../../constants/Typography';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Header } from '../../components/Header';
+import { Card } from '../../components/Card';
+import Animated, { FadeInUp, SlideInDown } from 'react-native-reanimated';
+import { supabase } from '../../lib/supabase';
 
 export default function CameraHubScreen() {
   const theme = useTheme();
@@ -22,6 +24,7 @@ export default function CameraHubScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [aiResult, setAiResult] = useState<any>(null);
   const cameraRef = useRef<CameraView>(null);
 
   if (!permission) {
@@ -92,7 +95,7 @@ export default function CameraHubScreen() {
   const pickFromGallery = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.5,
         base64: true,
       });
@@ -121,6 +124,7 @@ export default function CameraHubScreen() {
 
   const analyzePhoto = async (base64Image: string) => {
     setLoading(true);
+    setAiResult(null);
     try {
       const prompt = `Agis comme un expert nutritionniste. Analyse cette image de repas. 
 Estime les portions et donne moi les informations nutritionnelles pour ce que tu vois dans l'assiette (la portion totale visible).
@@ -129,7 +133,7 @@ Renvoie UNIQUEMENT un JSON respectant EXACTEMENT ce format :
 Ne renvoie aucun autre texte.`;
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -148,18 +152,7 @@ Ne renvoie aucun autre texte.`;
         const parsed = JSON.parse(cleanJson);
         
         if (parsed.food_name) {
-          router.replace({
-            pathname: '/nutrition/confirm-add',
-            params: {
-              food_name: parsed.food_name + " (estimé IA)",
-              calories_100g: parsed.calories.toString(),
-              proteins_100g: parsed.proteins.toString(),
-              carbs_100g: parsed.carbs.toString(),
-              fats_100g: parsed.fats.toString(),
-              meal: mealType,
-              date: targetDate
-            }
-          });
+          setAiResult(parsed);
         }
       }
     } catch (err) {
@@ -171,33 +164,179 @@ Ne renvoie aucun autre texte.`;
     }
   };
 
+  const mapMealTypeToDB = (frontendMeal: string) => {
+    if (frontendMeal === 'Petit-déjeuner') return 'breakfast';
+    if (frontendMeal === 'Déjeuner') return 'lunch';
+    if (frontendMeal === 'Collation') return 'snack';
+    if (frontendMeal === 'Dîner') return 'dinner';
+    return 'snack';
+  };
+
+  const confirmAiResult = async () => {
+    if (!aiResult) return;
+    setLoading(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      let logId;
+      const { data: existingLog } = await supabase
+        .from('nutrition_logs')
+        .select('id, total_calories, total_proteins, total_carbs, total_fats')
+        .eq('user_id', user.id)
+        .eq('log_date', targetDate)
+        .maybeSingle();
+
+      const addedCals = Math.round(aiResult.calories);
+      const addedProts = Math.round(aiResult.proteins);
+      const addedCarbs = Math.round(aiResult.carbs);
+      const addedFats = Math.round(aiResult.fats);
+
+      if (existingLog) {
+        logId = existingLog.id;
+        await supabase
+          .from('nutrition_logs')
+          .update({
+            total_calories: (existingLog.total_calories || 0) + addedCals,
+            total_proteins: (existingLog.total_proteins || 0) + addedProts,
+            total_carbs: (existingLog.total_carbs || 0) + addedCarbs,
+            total_fats: (existingLog.total_fats || 0) + addedFats
+          })
+          .eq('id', logId);
+      } else {
+        const { data: newLog, error: logError } = await supabase
+          .from('nutrition_logs')
+          .insert({
+            user_id: user.id,
+            log_date: targetDate,
+            total_calories: addedCals,
+            total_proteins: addedProts,
+            total_carbs: addedCarbs,
+            total_fats: addedFats
+          })
+          .select('id')
+          .single();
+
+        if (logError) throw logError;
+        if (newLog) logId = newLog.id;
+      }
+
+      if (logId) {
+        await supabase.from('nutrition_entries').insert({
+          log_id: logId,
+          food_name: aiResult.food_name + " (estimé IA)",
+          quantity_g: 100, // Conceptuel
+          calories: addedCals,
+          proteins: addedProts,
+          carbs: addedCarbs,
+          fats: addedFats,
+          meal_type: mapMealTypeToDB(mealType),
+          is_ai_estimated: true
+        });
+      }
+
+      router.replace({ pathname: '/nutrition/summary', params: { meal: mealType, date: targetDate } });
+    } catch (error) {
+      console.error("Erreur d'enregistrement:", error);
+      alert("Erreur lors de l'enregistrement.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (photoUri) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.topControls}>
+          <TouchableOpacity onPress={() => { setPhotoUri(null); setAiResult(null); }} style={styles.floatingBackBtn}>
+            <MaterialIcons name="close" size={28} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: Layout.spacing.lg, paddingBottom: 100 }}>
+          <View style={{ width: '100%', height: 300, backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 16, overflow: 'hidden', marginBottom: Layout.spacing.xl }}>
+            <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          </View>
+
+          {loading ? (
+            <View style={{ alignItems: 'center', marginTop: Layout.spacing.xl }}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={{ color: theme.text, marginTop: Layout.spacing.md, fontSize: 16, fontWeight: 'bold' }}>Analyse de l'image en cours...</Text>
+            </View>
+          ) : aiResult ? (
+            <Animated.View entering={SlideInDown.springify()}>
+              <Card style={{ padding: Layout.spacing.lg }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Layout.spacing.md }}>
+                  <MaterialIcons name="auto-awesome" size={24} color="#8B5CF6" />
+                  <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>Ce que l'IA a détecté :</Text>
+                </View>
+                
+                <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: Layout.spacing.lg }}>
+                  {aiResult.food_name}
+                </Text>
+                
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: Layout.spacing.xl }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ color: theme.primary, fontWeight: 'bold', fontSize: 18 }}>{aiResult.calories}</Text>
+                    <Text style={{ color: theme.icon, fontSize: 12 }}>kcal</Text>
+                  </View>
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ color: '#3B82F6', fontWeight: 'bold', fontSize: 18 }}>{aiResult.proteins}g</Text>
+                    <Text style={{ color: theme.icon, fontSize: 12 }}>Protéines</Text>
+                  </View>
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ color: '#F59E0B', fontWeight: 'bold', fontSize: 18 }}>{aiResult.carbs}g</Text>
+                    <Text style={{ color: theme.icon, fontSize: 12 }}>Glucides</Text>
+                  </View>
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 18 }}>{aiResult.fats}g</Text>
+                    <Text style={{ color: theme.icon, fontSize: 12 }}>Lipides</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.btn, { backgroundColor: theme.primary, marginBottom: Layout.spacing.md, alignItems: 'center' }]}
+                  onPress={confirmAiResult}
+                >
+                  <Text style={styles.btnText}>Valider et continuer</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={{ alignItems: 'center', padding: Layout.spacing.sm }}
+                  onPress={() => { setPhotoUri(null); setAiResult(null); }}
+                >
+                  <Text style={{ color: theme.icon }}>Prendre une autre photo</Text>
+                </TouchableOpacity>
+              </Card>
+            </Animated.View>
+          ) : null}
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {!photoUri ? (
-        <CameraView
-          style={StyleSheet.absoluteFillObject}
-          facing="back"
-          enableTorch={flash === 'on'}
-          ref={cameraRef}
-          onBarcodeScanned={scanned || mode !== 'barcode' ? undefined : handleBarcodeScanned}
-          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_e", "upc_a"] }}
-        />
-      ) : (
-        <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFillObject} />
-      )}
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        enableTorch={flash === 'on'}
+        ref={cameraRef}
+        onBarcodeScanned={scanned || mode !== 'barcode' ? undefined : handleBarcodeScanned}
+        barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_e", "upc_a"] }}
+      />
       
       <View style={styles.overlay}>
-        {/* Header */}
-        <Header 
-          leftContent={
-            <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-              <MaterialIcons name="arrow-back" size={28} color="#FFF" />
-            </TouchableOpacity>
-          }
-          title={mode === 'photo' ? 'Analyse IA' : 'Scanner Code-barres'}
-          titleStyle={{ color: '#FFF' }}
-          transparent
-        />
+        {/* Floating Top Controls */}
+        <View style={styles.topControls}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.floatingBackBtn}>
+            <MaterialIcons name="arrow-back" size={28} color="#FFF" />
+          </TouchableOpacity>
+        </View>
 
         {/* Center Target Box */}
         <View style={styles.targetBoxContainer}>
@@ -209,16 +348,14 @@ Ne renvoie aucun autre texte.`;
               </Text>
             </View>
           ) : (
-            !photoUri && (
-              <View style={[styles.targetBox, mode === 'photo' ? styles.targetPhoto : styles.targetBarcode]}>
-                <View style={[styles.corner, styles.topLeft]} />
-                <View style={[styles.corner, styles.topRight]} />
-                <View style={[styles.corner, styles.bottomLeft]} />
-                <View style={[styles.corner, styles.bottomRight]} />
-              </View>
-            )
+            <View style={[styles.targetBox, mode === 'photo' ? styles.targetPhoto : styles.targetBarcode]}>
+              <View style={[styles.corner, styles.topLeft]} />
+              <View style={[styles.corner, styles.topRight]} />
+              <View style={[styles.corner, styles.bottomLeft]} />
+              <View style={[styles.corner, styles.bottomRight]} />
+            </View>
           )}
-          {!photoUri && !loading && (
+          {!loading && (
             <Text style={styles.helperText}>
               {mode === 'photo' ? "Centrez votre assiette dans le cadre" : "Alignez le code-barres ici"}
             </Text>
@@ -226,7 +363,7 @@ Ne renvoie aucun autre texte.`;
         </View>
 
         {/* Bottom Controls */}
-        {!photoUri && !loading && (
+        {!loading && (
           <View style={styles.bottomControls}>
             <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
               <MaterialIcons name="photo-library" size={28} color="#FFF" />
@@ -262,6 +399,18 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     padding: Layout.spacing.xs,
+  },
+  topControls: {
+    paddingTop: 60, // Approximate safe area
+    paddingHorizontal: Layout.spacing.lg,
+  },
+  floatingBackBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   targetBoxContainer: {
     flex: 1,

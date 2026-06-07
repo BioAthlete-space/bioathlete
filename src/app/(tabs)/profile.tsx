@@ -16,7 +16,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const sections = useProfileMenu();
   const { profile } = useAthleteProfile();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   
   const handleSignOut = async () => {
     await signOut();
@@ -32,6 +32,8 @@ export default function ProfileScreen() {
   } else if (profile.nom) {
     displayName = profile.nom;
   }
+  
+  const displayEmail = profile.email || user?.email || 'Email non renseigné';
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -45,7 +47,7 @@ export default function ProfileScreen() {
             <MaterialIcons name="person" size={48} color={theme.icon} />
           </View>
           <Text style={[styles.name, { color: theme.text }]}>{displayName}</Text>
-          <Text style={[styles.email, { color: theme.icon }]}>{profile.email || 'Email non renseigné'}</Text>
+          <Text style={[styles.email, { color: theme.icon }]}>{displayEmail}</Text>
         </View>
 
         {/* Sections de paramètres */}
@@ -76,12 +78,6 @@ export default function ProfileScreen() {
           <CustomButton 
             title="Déconnexion" 
             variant="outline" 
-            style={styles.actionBtn} 
-            onPress={handleSignOut}
-          />
-          <CustomButton 
-            title="Supprimer le compte" 
-            variant="danger" 
             style={styles.actionBtn} 
             onPress={handleSignOut}
           />

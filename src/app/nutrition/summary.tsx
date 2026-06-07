@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../hooks/useThemeColor';
 import { Layout } from '../../constants/Layout';
@@ -11,7 +11,9 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { AnimatedProgressBar } from '../../components/AnimatedProgressBar';
 import { AnimatedNumber } from '../../components/AnimatedNumber';
 import { supabase } from '../../lib/supabase';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Swipeable } from 'react-native-gesture-handler';
+import { CustomButton } from '../../components/CustomButton';
 
 const { width } = Dimensions.get('window');
 
@@ -58,6 +60,13 @@ export default function NutritionSummaryScreen() {
     fats: 80,
   });
 
+  const [mealDistribution, setMealDistribution] = useState<Record<string, number>>({
+    'Petit-déjeuner': 25,
+    'Déjeuner': 35,
+    'Collation': 10,
+    'Dîner': 30
+  });
+
   const [consumedData, setConsumedData] = useState<Record<string, any>>({
     'Journée complète': { calories: 0, proteins: 0, carbs: 0, fats: 0 },
     'Petit-déjeuner': { calories: 0, proteins: 0, carbs: 0, fats: 0 },
@@ -66,8 +75,17 @@ export default function NutritionSummaryScreen() {
     'Dîner': { calories: 0, proteins: 0, carbs: 0, fats: 0 },
   });
 
-  useEffect(() => {
-    async function fetchData() {
+  const [mealEntries, setMealEntries] = useState<Record<string, any[]>>({
+    'Journée complète': [],
+    'Petit-déjeuner': [],
+    'Déjeuner': [],
+    'Collation': [],
+    'Dîner': [],
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      async function fetchData() {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -78,7 +96,7 @@ export default function NutritionSummaryScreen() {
       // Fetch goals
       const { data: profile } = await supabase
         .from('nutrition_profiles')
-        .select('target_calories, target_proteins, target_carbs, target_fats')
+        .select('target_calories, target_proteins, target_carbs, target_fats, meal_distribution')
         .eq('athlete_id', user.id)
         .maybeSingle();
 
@@ -89,6 +107,9 @@ export default function NutritionSummaryScreen() {
           carbs: profile.target_carbs || 300,
           fats: profile.target_fats || 80,
         });
+        if (profile.meal_distribution) {
+          setMealDistribution(profile.meal_distribution);
+        }
       }
 
       // Fetch the log for that date
@@ -112,11 +133,19 @@ export default function NutritionSummaryScreen() {
         'Dîner': { calories: 0, proteins: 0, carbs: 0, fats: 0 },
       };
 
+      const newEntries: Record<string, any[]> = {
+        'Journée complète': [],
+        'Petit-déjeuner': [],
+        'Déjeuner': [],
+        'Collation': [],
+        'Dîner': [],
+      };
+
       if (logData) {
         // Fetch the entries
         const { data: entries } = await supabase
           .from('nutrition_entries')
-          .select('meal_type, calories, proteins, carbs, fats')
+          .select('id, food_name, quantity_g, meal_type, calories, proteins, carbs, fats, is_ai_estimated')
           .eq('log_id', logData.id);
 
         if (entries) {
@@ -135,18 +164,57 @@ export default function NutritionSummaryScreen() {
               newData[frontendMeal].proteins += Number(entry.proteins || 0);
               newData[frontendMeal].carbs += Number(entry.carbs || 0);
               newData[frontendMeal].fats += Number(entry.fats || 0);
+              
+              newEntries[frontendMeal].push(entry);
+              newEntries['Journée complète'].push(entry);
             }
           });
         }
       }
       setConsumedData(newData);
+      setMealEntries(newEntries);
       setLoading(false);
     }
-    
     fetchData();
-  }, [targetDate]);
+  }, [targetDate]));
 
   const activeData = consumedData[selectedFilter];
+  const activeEntries = mealEntries[selectedFilter];
+
+  const getActiveGoals = () => {
+    if (selectedFilter === 'Journée complète') {
+      return dailyGoals;
+    }
+    const percent = (mealDistribution[selectedFilter] || 0) / 100;
+    return {
+      calories: Math.round(dailyGoals.calories * percent),
+      proteins: Math.round(dailyGoals.proteins * percent),
+      carbs: Math.round(dailyGoals.carbs * percent),
+      fats: Math.round(dailyGoals.fats * percent),
+    };
+  };
+
+  const activeGoals = getActiveGoals();
+
+  const handleDeleteEntry = async (entryId: string) => {
+    // Optimistic UI update
+    setMealEntries(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(key => {
+        updated[key] = updated[key].filter(e => e.id !== entryId);
+      });
+      return updated;
+    });
+
+    await supabase.from('nutrition_entries').delete().eq('id', entryId);
+    
+    // Refresh to recalculate totals
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Small delay then trigger effect by doing nothing or we can just fetch again
+      router.replace({ pathname: '/nutrition/summary', params: { date: targetDate, meal: selectedFilter } });
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -165,64 +233,21 @@ export default function NutritionSummaryScreen() {
         title="Résumé"
       />
 
-      {/* Pilules de filtres horizontales (Navigation) */}
-      <View style={styles.pillsContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsScroll}>
-          {MEAL_FILTERS.map((filter) => {
-            const isActive = filter === 'Journée complète';
-            return (
-              <TouchableOpacity
-                key={filter}
-                onPress={() => {
-                  if (filter === 'Journée complète') return;
-                  router.push({ pathname: `/nutrition/meal/${filter}`, params: { date: targetDate } });
-                }}
-                style={[
-                  styles.pill,
-                  { 
-                    backgroundColor: isActive ? theme.primary : theme.surfaceSecondary,
-                    borderColor: isActive ? theme.primary : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.pillText, { color: isActive ? '#FFF' : theme.text }]}>
-                  {filter}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeInUp.delay(100).springify()}>
-          <Card style={styles.card} elevation="medium">
-            <View style={styles.cardHeader}>
-              <MaterialIcons name="flag" size={24} color={theme.primary} />
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Objectifs de la journée</Text>
-            </View>
-            
-            <View style={styles.barsContainer}>
-              <GoalBar label="Calories" current={activeData.calories} max={dailyGoals.calories} color={theme.primary} unit="kcal" />
-              <GoalBar label="Protéines" current={activeData.proteins} max={dailyGoals.proteins} color="#3B82F6" />
-              <GoalBar label="Glucides" current={activeData.carbs} max={dailyGoals.carbs} color="#F59E0B" />
-              <GoalBar label="Lipides" current={activeData.fats} max={dailyGoals.fats} color="#EF4444" />
-            </View>
-          </Card>
-        </Animated.View>
-
         <Animated.View entering={FadeInUp.delay(200).springify()}>
           <Card style={[styles.card, { backgroundColor: theme.surfaceSecondary, borderWidth: 0, marginTop: Layout.spacing.lg }]} elevation="none">
             <View style={styles.cardHeader}>
               <MaterialIcons name="restaurant" size={24} color={theme.icon} />
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Consommé : Journée complète</Text>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>{selectedFilter}</Text>
             </View>
             
             <View style={styles.barsContainer}>
-              <GoalBar label="Calories" current={activeData.calories} max={dailyGoals.calories} color={theme.primary} unit="kcal" isThin={true} />
-              <GoalBar label="Protéines" current={activeData.proteins} max={dailyGoals.proteins} color="#3B82F6" isThin={true} />
-              <GoalBar label="Glucides" current={activeData.carbs} max={dailyGoals.carbs} color="#F59E0B" isThin={true} />
-              <GoalBar label="Lipides" current={activeData.fats} max={dailyGoals.fats} color="#EF4444" isThin={true} />
+              <GoalBar label="Calories" current={activeData.calories} max={activeGoals.calories} color={theme.primary} unit="kcal" />
+              <GoalBar label="Protéines" current={activeData.proteins} max={activeGoals.proteins} color="#3B82F6" />
+              <GoalBar label="Glucides" current={activeData.carbs} max={activeGoals.carbs} color="#F59E0B" />
+              <GoalBar label="Lipides" current={activeData.fats} max={activeGoals.fats} color="#EF4444" />
             </View>
 
             {activeData.calories === 0 && (
@@ -230,8 +255,58 @@ export default function NutritionSummaryScreen() {
                 <Text style={{ color: theme.icon, fontStyle: 'italic' }}>Rien de consommé pour le moment.</Text>
               </View>
             )}
+            
+            <CustomButton 
+              title="Ajouter un aliment" 
+              icon={<MaterialIcons name="add" size={20} color="#FFF" />} 
+              onPress={() => router.push({ pathname: '/nutrition/add', params: { meal: selectedFilter, date: targetDate } })} 
+              style={{ marginTop: Layout.spacing.lg }} 
+            />
           </Card>
         </Animated.View>
+
+        {activeEntries && activeEntries.length > 0 && (
+          <Animated.View entering={FadeInUp.delay(300).springify()}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: Layout.spacing.md }]}>Aliments ajoutés</Text>
+            {activeEntries.map((entry) => (
+              <Swipeable
+                key={entry.id}
+                renderRightActions={() => (
+                  <TouchableOpacity 
+                    style={styles.deleteButton} 
+                    onPress={() => handleDeleteEntry(entry.id)}
+                  >
+                    <MaterialIcons name="delete" size={24} color="#FFF" />
+                  </TouchableOpacity>
+                )}
+              >
+                <TouchableOpacity 
+                  activeOpacity={0.8}
+                  style={[styles.foodItem, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={() => router.push({ pathname: '/nutrition/edit-entry', params: { id: entry.id } })}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={[styles.foodName, { color: theme.text, marginBottom: 0 }]}>{entry.food_name}</Text>
+                      {entry.is_ai_estimated && (
+                        <View style={{ backgroundColor: '#EDE9FE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, marginLeft: 8 }}>
+                          <Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: 'bold' }}>✨ IA</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={{ color: theme.icon, fontSize: 13 }}>{entry.quantity_g}g</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: theme.primary, fontWeight: 'bold' }}>{Math.round(entry.calories)} kcal</Text>
+                    <Text style={{ color: theme.icon, fontSize: 11 }}>
+                      P:{Math.round(entry.proteins)}g G:{Math.round(entry.carbs)}g L:{Math.round(entry.fats)}g
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </Swipeable>
+            ))}
+          </Animated.View>
+        )}
 
       </ScrollView>
     </View>
@@ -340,5 +415,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
     textAlign: 'center',
+  },
+  foodItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Layout.spacing.md,
+    marginBottom: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.md,
+    borderWidth: 1,
+  },
+  foodName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+    borderRadius: Layout.borderRadius.md,
+    marginBottom: Layout.spacing.sm,
+    marginLeft: Layout.spacing.sm,
   }
 });

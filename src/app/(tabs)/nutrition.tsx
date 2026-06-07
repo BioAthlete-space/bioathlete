@@ -11,9 +11,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { AnimatedProgressBar } from '../../components/AnimatedProgressBar';
 import { SemiCircleProgress } from '../../components/SemiCircleProgress';
 import { AnimatedNumber } from '../../components/AnimatedNumber';
-import { useRouter, Link } from 'expo-router';
+import { CircularProgress } from '../../components/CircularProgress';
+import { useRouter, Link, useFocusEffect } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback } from 'react';
 
 const getRelativeDateLabel = (dateStr: string) => {
   const targetDate = new Date(dateStr);
@@ -60,92 +62,94 @@ export default function NutritionScreen() {
     'Dîner': 0
   });
 
-  useEffect(() => {
-    const fetchLog = async () => {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  useFocusEffect(
+    useCallback(() => {
+      const fetchLog = async () => {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-      // Fetch user profile for body stats
-      const { data: userProfile } = await supabase
-        .from('profiles')
-        .select('weightkg, body_fat_percentage, muscle_mass_percentage')
-        .eq('id', user.id)
-        .maybeSingle();
+        // Fetch user profile for body stats
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('weightkg, body_fat_percentage, muscle_mass_percentage')
+          .eq('id', user.id)
+          .maybeSingle();
 
-      if (userProfile) {
-        setBodyStats(userProfile);
-      }
-
-      // Fetch goals and checkin status
-      const { data: profile } = await supabase
-        .from('nutrition_profiles')
-        .select('*')
-        .eq('athlete_id', user.id)
-        .maybeSingle();
-
-      if (profile) {
-        setDailyGoals({
-          calories: profile.target_calories || 2500,
-          proteins: profile.target_proteins || 120,
-          carbs: profile.target_carbs || 300,
-          fats: profile.target_fats || 80,
-        });
-        
-        if (profile.next_checkin_date && new Date(profile.next_checkin_date) < new Date()) {
-          setCheckinAlert(true);
-        } else {
-          setCheckinAlert(false);
+        if (userProfile) {
+          setBodyStats(userProfile);
         }
-      }
 
-      const { data, error } = await supabase
-        .from('nutrition_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('log_date', selectedDateId)
-        .maybeSingle();
+        // Fetch goals and checkin status
+        const { data: profile } = await supabase
+          .from('nutrition_profiles')
+          .select('*')
+          .eq('athlete_id', user.id)
+          .maybeSingle();
 
-      if (data) {
-        setDailyData({
-          calories: Number(data.total_calories || 0),
-          proteins: Number(data.total_proteins || 0),
-          carbs: Number(data.total_carbs || 0),
-          fats: Number(data.total_fats || 0)
-        });
-
-        // Fetch entries for meal totals
-        const { data: entries } = await supabase
-          .from('nutrition_entries')
-          .select('meal_type, calories')
-          .eq('log_id', data.id);
-
-        if (entries) {
-          const newMealsData: Record<string, number> = {
-            'Petit-déjeuner': 0,
-            'Déjeuner': 0,
-            'Collation': 0,
-            'Dîner': 0
-          };
-          entries.forEach((entry) => {
-            if (entry.meal_type === 'breakfast') newMealsData['Petit-déjeuner'] += Number(entry.calories || 0);
-            if (entry.meal_type === 'lunch') newMealsData['Déjeuner'] += Number(entry.calories || 0);
-            if (entry.meal_type === 'snack') newMealsData['Collation'] += Number(entry.calories || 0);
-            if (entry.meal_type === 'dinner') newMealsData['Dîner'] += Number(entry.calories || 0);
+        if (profile) {
+          setDailyGoals({
+            calories: profile.target_calories || 2500,
+            proteins: profile.target_proteins || 120,
+            carbs: profile.target_carbs || 300,
+            fats: profile.target_fats || 80,
           });
-          setMealsData(newMealsData);
+          
+          if (profile.next_checkin_date && new Date(profile.next_checkin_date) < new Date()) {
+            setCheckinAlert(true);
+          } else {
+            setCheckinAlert(false);
+          }
+        }
+
+        const { data, error } = await supabase
+          .from('nutrition_logs')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('log_date', selectedDateId)
+          .maybeSingle();
+
+        if (data) {
+          setDailyData({
+            calories: Number(data.total_calories || 0),
+            proteins: Number(data.total_proteins || 0),
+            carbs: Number(data.total_carbs || 0),
+            fats: Number(data.total_fats || 0)
+          });
+
+          // Fetch entries for meal totals
+          const { data: entries } = await supabase
+            .from('nutrition_entries')
+            .select('meal_type, calories')
+            .eq('log_id', data.id);
+
+          if (entries) {
+            const newMealsData: Record<string, number> = {
+              'Petit-déjeuner': 0,
+              'Déjeuner': 0,
+              'Collation': 0,
+              'Dîner': 0
+            };
+            entries.forEach((entry) => {
+              if (entry.meal_type === 'breakfast') newMealsData['Petit-déjeuner'] += Number(entry.calories || 0);
+              if (entry.meal_type === 'lunch') newMealsData['Déjeuner'] += Number(entry.calories || 0);
+              if (entry.meal_type === 'snack') newMealsData['Collation'] += Number(entry.calories || 0);
+              if (entry.meal_type === 'dinner') newMealsData['Dîner'] += Number(entry.calories || 0);
+            });
+            setMealsData(newMealsData);
+          } else {
+            setMealsData({ 'Petit-déjeuner': 0, 'Déjeuner': 0, 'Collation': 0, 'Dîner': 0 });
+          }
         } else {
+          setDailyData({ calories: 0, proteins: 0, carbs: 0, fats: 0 });
           setMealsData({ 'Petit-déjeuner': 0, 'Déjeuner': 0, 'Collation': 0, 'Dîner': 0 });
         }
-      } else {
-        setDailyData({ calories: 0, proteins: 0, carbs: 0, fats: 0 });
-        setMealsData({ 'Petit-déjeuner': 0, 'Déjeuner': 0, 'Collation': 0, 'Dîner': 0 });
-      }
-      setLoading(false);
-    };
+        setLoading(false);
+      };
 
-    fetchLog();
-  }, [selectedDateId]);
+      fetchLog();
+    }, [selectedDateId])
+  );
 
   const shiftDate = (days: number) => {
     setDirection(days);
@@ -198,8 +202,8 @@ export default function NutritionScreen() {
             <View>
 
           <Animated.View entering={FadeInUp.delay(50).springify()}>
-            {/* Carte Nutritionniste IA */}
-            <Link href="/nutrition/chat" asChild>
+            {/* Carte Paramètres / Gestion */}
+            <Link href="/nutrition/settings" asChild>
               <TouchableOpacity 
                 activeOpacity={0.8} 
                 style={{ marginBottom: Layout.spacing.lg }}
@@ -222,11 +226,11 @@ export default function NutritionScreen() {
                 }}
               >
                 <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 10, borderRadius: 20, marginRight: Layout.spacing.md }}>
-                  <MaterialIcons name="auto-awesome" size={24} color="#FFF" />
+                  <MaterialIcons name="settings" size={24} color="#FFF" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#FFF', fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }}>Bioflow IA</Text>
-                  <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: Typography.sizes.sm, marginTop: 4 }}>Discutez avec votre coach virtuel</Text>
+                  <Text style={{ color: '#FFF', fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }}>Gestion & Paramètres</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: Typography.sizes.sm, marginTop: 4 }}>Objectifs et répartition des repas</Text>
                 </View>
                 {checkinAlert && (
                   <View style={{ backgroundColor: theme.danger, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
@@ -316,24 +320,48 @@ export default function NutritionScreen() {
             
             {['Petit-déjeuner', 'Déjeuner', 'Collation', 'Dîner'].map((mealName, index) => {
               const mealCalories = mealsData[mealName] || 0;
+              let mealTargetPercent = 0.25;
+              let mealIcon = "restaurant";
+              
+              if (mealName === 'Petit-déjeuner') {
+                mealTargetPercent = 0.25;
+                mealIcon = "free-breakfast";
+              } else if (mealName === 'Déjeuner') {
+                mealTargetPercent = 0.35;
+                mealIcon = "lunch-dining";
+              } else if (mealName === 'Collation') {
+                mealTargetPercent = 0.10;
+                mealIcon = "bakery-dining";
+              } else if (mealName === 'Dîner') {
+                mealTargetPercent = 0.30;
+                mealIcon = "dinner-dining";
+              }
+              const mealTarget = Math.round(dailyGoals.calories * mealTargetPercent);
+
               return (
               <TouchableOpacity 
                 key={index} 
                 style={StyleSheet.flatten([styles.mealCard, { backgroundColor: theme.card, borderColor: theme.border }])}
                 onPress={() => router.push({ pathname: '/nutrition/summary', params: { meal: mealName, date: selectedDateId } })}
               >
-                <View style={[styles.mealIconWrapper, { backgroundColor: theme.surfaceSecondary }]}>
-                  <MaterialIcons name="restaurant" size={24} color={theme.icon} />
+                <View style={{ marginRight: Layout.spacing.md }}>
+                  <CircularProgress 
+                    value={mealCalories} 
+                    max={mealTarget} 
+                    size={56} 
+                    strokeWidth={4} 
+                    color={theme.primary}
+                  >
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.surfaceSecondary, alignItems: 'center', justifyContent: 'center' }}>
+                      <MaterialIcons name={mealIcon as any} size={22} color={theme.icon} />
+                    </View>
+                  </CircularProgress>
                 </View>
                 <View style={styles.mealInfo}>
                   <Text style={[styles.mealName, { color: theme.text }]}>{mealName}</Text>
-                  {mealCalories > 0 ? (
-                    <Text style={[styles.mealEmpty, { color: theme.primary, marginTop: 2, fontWeight: 'bold' }]}>
-                      {mealCalories} kcal consommées
-                    </Text>
-                  ) : (
-                    <Text style={[styles.mealEmpty, { color: theme.icon, marginTop: 2 }]}>Ajouter un aliment</Text>
-                  )}
+                  <Text style={[styles.mealEmpty, { color: mealCalories > 0 ? theme.primary : theme.icon, marginTop: 2, fontWeight: mealCalories > 0 ? 'bold' : 'normal' }]}>
+                    {mealCalories} / {mealTarget} kcal
+                  </Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={28} color={theme.icon} />
               </TouchableOpacity>

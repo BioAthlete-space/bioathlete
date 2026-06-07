@@ -147,10 +147,9 @@ export function useAthleteProfile(): UseAthleteProfileReturn {
     setProfile(prev => {
       const updated = { ...prev, [key]: value };
       setHasChanges(true);
-      scheduleSave(updated);
       return updated;
     });
-  }, [scheduleSave]);
+  }, []);
 
   // ── SAVE NOW (bouton "Enregistrer") ──
   const saveNow = useCallback(async (): Promise<boolean> => {
@@ -166,11 +165,8 @@ export function useAthleteProfile(): UseAthleteProfileReturn {
   // ── CLEANUP AU UNMOUNT ──
   useEffect(() => {
     return () => {
-      // Sauvegarder les modifications en attente avant de quitter
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
-        // Sauvegarde synchrone best-effort au unmount
-        saveProfile(latestProfileRef.current).catch(() => {});
       }
       if (savedTimerRef.current) {
         clearTimeout(savedTimerRef.current);

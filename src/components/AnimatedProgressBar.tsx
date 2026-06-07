@@ -31,7 +31,7 @@ export function AnimatedProgressBar({ current, max, color, delay = 0, height = 8
   });
 
   return (
-    <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSecondary, height }]}>
+    <View style={[styles.progressTrack, { backgroundColor: 'rgba(150,150,150,0.2)', height }]}>
       <Animated.View style={[styles.progressFill, { backgroundColor: color }, animatedStyle]} />
     </View>
   );
