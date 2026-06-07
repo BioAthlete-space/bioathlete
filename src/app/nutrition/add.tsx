@@ -42,28 +42,171 @@ export default function NutritionAddScreen() {
   useEffect(() => {
     const fetchFoods = async () => {
       if (!debouncedQuery || debouncedQuery.length < 3) {
-        setResults([]);
+        setLoading(true);
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: history } = await supabase
+              .from('nutrition_entries')
+              .select('food_name, calories, proteins, carbs, fats, portion_g, created_at')
+              .order('created_at', { ascending: false })
+              .limit(50);
+            
+            if (history) {
+              const uniqueHistory: any[] = [];
+              const seen = new Set();
+              for (const entry of history) {
+                if (!seen.has(entry.food_name)) {
+                  seen.add(entry.food_name);
+                  const multiplier = 100 / (entry.portion_g || 100);
+                  uniqueHistory.push({
+                    id: `hist_${uniqueHistory.length}`,
+                    name: entry.food_name,
+                    brand: '🕒 Récemment utilisé',
+                    image: null,
+                    calories: entry.calories * multiplier,
+                    proteins: entry.proteins * multiplier,
+                    carbs: entry.carbs * multiplier,
+                    fats: entry.fats * multiplier,
+                  });
+                  if (uniqueHistory.length >= 10) break;
+                }
+              }
+              setResults(uniqueHistory);
+            }
+          }
+        } catch (e) {
+          console.warn("Erreur historique:", e);
+        } finally {
+          setLoading(false);
+        }
         return;
       }
+      
       setLoading(true);
       try {
-        const response = await fetch(`https://fr.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(debouncedQuery)}&search_simple=1&action=process&json=1&page_size=15`);
-        const data = await response.json();
-        if (data && data.products) {
-          const formattedProducts = data.products.map((p: any) => ({
+        let formattedProducts: any[] = [];
+        const normalizeString = (str: string) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        let ciqualNames = new Set<string>();
+
+        // Construction dynamique de la requête CIQUAL pour gérer les mots multiples (ex: "filet de poulet")
+        let ciqualQuery = supabase.from('ciqual_foods').select('*');
+        const words = debouncedQuery.split(' ').map(w => w.trim()).filter(w => w.length > 2 && !['les', 'des', 'aux', 'avec'].includes(w.toLowerCase()));
+        
+        if (words.length > 1) {
+          words.forEach(w => {
+            ciqualQuery = ciqualQuery.ilike('name_fr', `%${w}%`);
+          });
+        } else {
+          ciqualQuery = ciqualQuery.ilike('name_fr', `%${debouncedQuery}%`);
+        }
+        ciqualQuery = ciqualQuery.limit(200);
+
+        // 1. Recherche simultanée sur CIQUAL et OpenFoodFacts
+        const [ciqualRes, offRes] = await Promise.allSettled([
+          ciqualQuery,
+          fetch(`https://fr.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(debouncedQuery)}&search_simple=1&action=process&json=1&page_size=15&sort_by=unique_scans_n`)
+            .then(res => res.json())
+        ]);
+
+        // Traitement CIQUAL
+        if (ciqualRes.status === 'fulfilled' && ciqualRes.value.data) {
+          const queryNorm = normalizeString(debouncedQuery);
+          const sortedCiqual = ciqualRes.value.data.sort((a: any, b: any) => {
+            const aName = normalizeString(a.name_fr);
+            const bName = normalizeString(b.name_fr);
+            
+            if (aName === queryNorm) return -1;
+            if (bName === queryNorm) return 1;
+            
+            const aStarts = aName.startsWith(queryNorm);
+            const bStarts = bName.startsWith(queryNorm);
+            if (aStarts && !bStarts) return -1;
+            if (!aStarts && bStarts) return 1;
+            
+            return aName.length - bName.length;
+          }).slice(0, 15);
+          
+          const ciqualData = sortedCiqual.map((p: any) => {
+            ciqualNames.add(normalizeString(p.name_fr));
+            return {
+              id: p.id,
+              name: p.name_fr,
+              brand: '',
+              image: null,
+              calories: p.calories_100g || 0,
+              proteins: p.proteins_100g || 0,
+              carbs: p.carbs_100g || 0,
+              fats: p.fats_100g || 0,
+            };
+          }).filter((p: any) => p.calories > 0 || p.proteins > 0 || p.carbs > 0 || p.fats > 0);
+          formattedProducts = [...formattedProducts, ...ciqualData];
+        }
+
+        // Traitement OpenFoodFacts (avec dédoublonnage)
+        if (offRes.status === 'fulfilled' && offRes.value.products) {
+          const offData = offRes.value.products.map((p: any) => ({
             id: p.code,
             name: p.product_name || 'Inconnu',
-            brand: p.brands || '',
-            image: p.image_url || p.image_front_thumb_url || null,
+            brand: '', // Suppression de la marque industrielle pour épurer
+            image: null, // Plus d'image affichée dans la liste
             calories: p.nutriments?.['energy-kcal_100g'] || 0,
             proteins: p.nutriments?.proteins_100g || 0,
             carbs: p.nutriments?.carbohydrates_100g || 0,
             fats: p.nutriments?.fat_100g || 0,
-          }));
-          setResults(formattedProducts.filter((p: any) => p.name !== 'Inconnu'));
+          })).filter((p: any) => {
+            if (p.name === 'Inconnu') return false;
+            if (p.calories <= 0 && p.proteins <= 0 && p.carbs <= 0 && p.fats <= 0) return false;
+            
+            const normName = normalizeString(p.name);
+            let isDuplicate = false;
+            ciqualNames.forEach(cName => {
+              if (cName === normName || cName.includes(normName)) isDuplicate = true;
+            });
+            return !isDuplicate;
+          });
+          formattedProducts = [...formattedProducts, ...offData];
         }
+
+        // 2. Fallback IA si la base de données ne trouve rien
+        if (formattedProducts.length === 0) {
+          const prompt = `L'utilisateur a cherché "${debouncedQuery}" mais la base de données n'a rien trouvé. 
+Suggère 3 aliments génériques ou ingrédients simples correspondants, avec leurs valeurs nutritionnelles pour 100g.
+Renvoie UNIQUEMENT un JSON contenant un tableau "products" respectant EXACTEMENT ce format :
+{ "products": [ { "id": "ia_1", "name": "Nom de l'aliment suggéré", "brand": "", "image": "", "calories": 100, "proteins": 20, "carbs": 10, "fats": 5 } ] }
+Ne renvoie absolument aucun autre texte, juste le JSON.`;
+
+          const aiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.2 }
+              })
+            }
+          );
+          
+          const aiData = await aiResponse.json();
+          const textOutput = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (textOutput) {
+            try {
+              const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+              const parsed = JSON.parse(cleanJson);
+              if (parsed && parsed.products) {
+                formattedProducts = parsed.products;
+              }
+            } catch (e) {
+              console.warn("Erreur parsing JSON Gemini Fallback:", e);
+            }
+          }
+        }
+        
+        setResults(formattedProducts);
       } catch (err) {
-        console.error("Erreur API OFF:", err);
+        console.warn("Erreur de recherche globale:", err);
       } finally {
         setLoading(false);
       }
@@ -162,37 +305,43 @@ export default function NutritionAddScreen() {
     }
   };
 
-  const renderItem = ({ item, index }: { item: any, index: number }) => (
-    <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
-      <TouchableOpacity
-        style={[styles.resultItem, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-        onPress={() => setSelectedFood(item)}
-      >
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.foodImage} />
-        ) : (
-          <View style={[styles.foodImagePlaceholder, { backgroundColor: theme.card }]}>
-            <MaterialIcons name="fastfood" size={20} color={theme.icon} />
+  const renderItem = ({ item, index }: { item: any, index: number }) => {
+    // Format macro text and hide 0 kcal if it seems missing
+    const showKcal = item.calories > 0;
+    const subtitle = `${showKcal ? `${Math.round(item.calories)} kcal • ` : ''}P: ${Math.round(item.proteins)}g • G: ${Math.round(item.carbs)}g • L: ${Math.round(item.fats)}g`;
+    
+    return (
+      <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
+        <TouchableOpacity
+          style={[styles.resultItem, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+          onPress={() => setSelectedFood(item)}
+        >
+          <View style={[styles.foodInfo, { marginLeft: 0 }]}>
+            <Text style={[styles.foodName, { color: theme.text, fontSize: 16, fontWeight: 'bold' }]} numberOfLines={1}>{item.name}</Text>
+            {item.brand && item.brand.includes('✨') ? (
+              <Text style={[styles.foodBrand, { color: theme.icon }]} numberOfLines={1}>{item.brand}</Text>
+            ) : null}
+            <Text style={[styles.foodMacros, { color: theme.icon, fontSize: 12, marginTop: 2 }]}>
+              {subtitle}
+            </Text>
           </View>
-        )}
-        <View style={styles.foodInfo}>
-          <Text style={[styles.foodName, { color: theme.text }]} numberOfLines={1}>{item.name}</Text>
-          {item.brand ? <Text style={[styles.foodBrand, { color: theme.icon }]} numberOfLines={1}>{item.brand}</Text> : null}
-          <Text style={[styles.foodMacros, { color: theme.primary }]}>
-            {Math.round(item.calories)} kcal • P: {Math.round(item.proteins)}g • G: {Math.round(item.carbs)}g • L: {Math.round(item.fats)}g (pour 100g)
-          </Text>
-        </View>
-        <MaterialIcons name="add-circle-outline" size={24} color={theme.primary} />
-      </TouchableOpacity>
-    </Animated.View>
-  );
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={[styles.container, { backgroundColor: theme.background }]}>
       <Header
         leftContent={
-          <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
-            <MaterialIcons name="close" size={28} color={theme.text} />
+          <TouchableOpacity onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/nutrition/summary');
+            }
+          }} style={styles.closeBtn}>
+            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
           </TouchableOpacity>
         }
         title={`Ajouter - ${mealType}`}
@@ -201,21 +350,53 @@ export default function NutritionAddScreen() {
       <View style={styles.content}>
         {!selectedFood ? (
           <Animated.View entering={FadeInDown.duration(300)}>
+            {/* 4 Boutons d'Action (HUB) */}
+            <View style={styles.hubContainer}>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => { /* Déjà sur la recherche */ }}>
+                <MaterialIcons name="search" size={28} color="#F59E0B" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Recherche</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'photo', meal: mealType, date: targetDate } })}>
+                <MaterialIcons name="camera-alt" size={28} color="#8B5CF6" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Caméra</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'barcode', meal: mealType, date: targetDate } })}>
+                <MaterialIcons name="qr-code-scanner" size={28} color="#3B82F6" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Scan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/text-ai', params: { meal: mealType, date: targetDate } })}>
+                <MaterialIcons name="chat" size={28} color="#10B981" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Texte</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Barre de Recherche */}
             <View style={[styles.searchContainer, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
               <MaterialIcons name="search" size={24} color={theme.icon} style={styles.searchIcon} />
               <TextInput
                 style={[styles.searchInput, { color: theme.text }]}
-                placeholder="Rechercher un aliment..."
+                placeholder={`Qu'avez-vous mangé au ${mealType} ?`}
                 placeholderTextColor={theme.icon}
                 value={query}
                 onChangeText={setQuery}
-                autoFocus
               />
               {query.length > 0 && (
                 <TouchableOpacity onPress={() => setQuery('')}>
                   <MaterialIcons name="cancel" size={20} color={theme.icon} />
                 </TouchableOpacity>
               )}
+            </View>
+
+            {/* Filtres */}
+            <View style={styles.filtersContainer}>
+              <TouchableOpacity style={[styles.filterDropdown, { backgroundColor: theme.surfaceSecondary }]}>
+                <Text style={[styles.filterText, { color: theme.text }]}>Aliments</Text>
+                <MaterialIcons name="keyboard-arrow-down" size={20} color={theme.icon} />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterDropdown, { backgroundColor: theme.surfaceSecondary }]}>
+                <Text style={[styles.filterText, { color: theme.text }]}>Récents</Text>
+                <MaterialIcons name="keyboard-arrow-down" size={20} color={theme.icon} />
+              </TouchableOpacity>
             </View>
 
             {loading && !results.length ? (
@@ -342,7 +523,7 @@ const styles = StyleSheet.create({
     padding: Layout.spacing.md,
     borderRadius: Layout.borderRadius.lg,
     borderWidth: 1,
-    marginBottom: Layout.spacing.sm,
+    marginBottom: Layout.spacing.md,
   },
   foodImage: {
     width: 48,
@@ -448,5 +629,41 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: Typography.sizes.md,
     fontWeight: Typography.weights.bold,
+  },
+  hubContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: Layout.spacing.lg,
+  },
+  hubBtn: {
+    width: '23%',
+    aspectRatio: 1,
+    borderRadius: Layout.borderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Layout.spacing.xs,
+  },
+  hubText: {
+    fontSize: 11,
+    marginTop: 6,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  filtersContainer: {
+    flexDirection: 'row',
+    gap: Layout.spacing.sm,
+    marginBottom: Layout.spacing.md,
+  },
+  filterDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Layout.spacing.md,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 4,
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 });

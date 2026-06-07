@@ -16,7 +16,7 @@ import { CDLogo } from '../../components/CDLogo';
 import { QuickReplies } from '../../components/QuickReplies';
 import Animated, { FadeInUp, FadeInDown, SlideInRight, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
-import { fetchAthleteAIContext } from './aiContext';
+import { fetchAthleteAIContext } from './_aiContext';
 
 type Message = {
   id: string;

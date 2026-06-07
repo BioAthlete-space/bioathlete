@@ -335,13 +335,7 @@ export default function NutritionScreen() {
                     <Text style={[styles.mealEmpty, { color: theme.icon, marginTop: 2 }]}>Ajouter un aliment</Text>
                   )}
                 </View>
-                <Link href={{ pathname: '/nutrition/add', params: { meal: mealName, date: selectedDateId } }} asChild>
-                  <TouchableOpacity 
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <MaterialIcons name="add-circle" size={28} color={theme.primary} />
-                  </TouchableOpacity>
-                </Link>
+                <MaterialIcons name="chevron-right" size={28} color={theme.icon} />
               </TouchableOpacity>
             )})}
           </Animated.View>

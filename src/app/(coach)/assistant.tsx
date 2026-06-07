@@ -6,7 +6,7 @@ import { Header } from '../../components/Header';
 import { MaterialIcons } from '@expo/vector-icons';
 import { BioflowLogo } from '../../components/BioflowLogo';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, interpolateColor, Easing } from 'react-native-reanimated';
-import { fetchAIContext } from './aiContext';
+import { fetchAIContext } from './_aiContext';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../providers/AuthProvider';
 import { bioflowStore } from '../../stores/BioflowStore';

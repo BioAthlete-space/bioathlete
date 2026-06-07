@@ -152,22 +152,31 @@ export default function NutritionSummaryScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Header 
         leftContent={
-          <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
-            <MaterialIcons name="close" size={28} color={theme.text} />
+          <TouchableOpacity onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/');
+            }
+          }} style={styles.closeBtn}>
+            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
           </TouchableOpacity>
         }
         title="Résumé"
       />
 
-      {/* Pilules de filtres horizontales */}
+      {/* Pilules de filtres horizontales (Navigation) */}
       <View style={styles.pillsContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsScroll}>
           {MEAL_FILTERS.map((filter) => {
-            const isActive = selectedFilter === filter;
+            const isActive = filter === 'Journée complète';
             return (
               <TouchableOpacity
                 key={filter}
-                onPress={() => setSelectedFilter(filter)}
+                onPress={() => {
+                  if (filter === 'Journée complète') return;
+                  router.push({ pathname: `/nutrition/meal/${filter}`, params: { date: targetDate } });
+                }}
                 style={[
                   styles.pill,
                   { 
@@ -186,7 +195,6 @@ export default function NutritionSummaryScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        
         <Animated.View entering={FadeInUp.delay(100).springify()}>
           <Card style={styles.card} elevation="medium">
             <View style={styles.cardHeader}>
@@ -204,13 +212,12 @@ export default function NutritionSummaryScreen() {
         </Animated.View>
 
         <Animated.View entering={FadeInUp.delay(200).springify()}>
-          <Card style={[styles.card, { backgroundColor: theme.surfaceSecondary, borderWidth: 0 }]} elevation="none">
+          <Card style={[styles.card, { backgroundColor: theme.surfaceSecondary, borderWidth: 0, marginTop: Layout.spacing.lg }]} elevation="none">
             <View style={styles.cardHeader}>
               <MaterialIcons name="restaurant" size={24} color={theme.icon} />
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Consommé : {selectedFilter}</Text>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Consommé : Journée complète</Text>
             </View>
             
-            {/* Version "différente" des barres pour le consommé (plus fines, couleurs pleines sans bordure) */}
             <View style={styles.barsContainer}>
               <GoalBar label="Calories" current={activeData.calories} max={dailyGoals.calories} color={theme.primary} unit="kcal" isThin={true} />
               <GoalBar label="Protéines" current={activeData.proteins} max={dailyGoals.proteins} color="#3B82F6" isThin={true} />
@@ -296,5 +303,42 @@ const styles = StyleSheet.create({
     marginTop: Layout.spacing.lg,
     alignItems: 'center',
     paddingVertical: Layout.spacing.md,
+  },
+  sectionTitle: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    marginTop: Layout.spacing.lg,
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Layout.spacing.sm,
+    marginBottom: Layout.spacing.xl,
+  },
+  actionCard: {
+    flex: 1,
+    padding: Layout.spacing.md,
+    borderRadius: Layout.borderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Layout.spacing.sm,
+  },
+  actionTitle: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.bold,
+    textAlign: 'center',
+  },
+  actionSub: {
+    fontSize: 10,
+    marginTop: 2,
+    textAlign: 'center',
   }
 });
