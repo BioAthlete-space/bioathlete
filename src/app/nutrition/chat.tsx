@@ -33,6 +33,7 @@ const VIEW_STATES = {
   HUB: 'HUB',
   CHAT: 'CHAT',
   CHECKIN: 'CHECKIN',
+  SUCCESS_BILAN: 'SUCCESS_BILAN',
 };
 
 const tools = [{
@@ -100,6 +101,7 @@ export default function AINutritionHubScreen() {
   const [nutritionProfile, setNutritionProfile] = useState<any>(null);
   const [athleteMemory, setAthleteMemory] = useState<any>(null);
   const [athleteGender, setAthleteGender] = useState('Homme');
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
     fetchProfile();
@@ -111,6 +113,7 @@ export default function AINutritionHubScreen() {
       startBilan();
       return;
     }
+    setCurrentUser(user);
     const { data } = await supabase
       .from('nutrition_profiles')
       .select('*')
@@ -362,8 +365,11 @@ ${stateInstruction}`;
               is_bilan_done: true
             }, { onConflict: 'athlete_id' });
           }
-          functionResponseData = { status: "success", message: "Dis à l'athlète exactement ceci : 'Le bilan est terminé. Tes objectifs nutritionnels sont maintenant disponibles dans tes paramètres. Tu pourras y ajuster ton niveau d'activité (sédentaire, intense, etc.) et ta répartition par repas à ta convenance.'" };
-          shouldReturnToHub = true;
+          setViewState(VIEW_STATES.SUCCESS_BILAN);
+          shouldReturnToHub = false;
+          // On arrête la fonction ici pour ne pas afficher le très long message texte du rapport IA dans le chat
+          setIsTyping(false);
+          return;
         } else if (fc.name === 'update_memory') {
           let currentMem = athleteMemory || {};
           let updates: any = {};
@@ -568,20 +574,6 @@ ${stateInstruction}`;
                   </View>
                 </View>
               )}
-              {nutritionProfile?.is_bilan_done && viewState === VIEW_STATES.CHAT && (
-                <Animated.View entering={FadeInUp.delay(500).springify()} style={{ alignItems: 'center', marginVertical: 30 }}>
-                  <TouchableOpacity 
-                    onPress={() => user && generateAndShareReport(user.id)}
-                    style={{ backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 30, flexDirection: 'row', alignItems: 'center', shadowColor: theme.primary, shadowOffset: {width:0, height:4}, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }}
-                  >
-                    <FontAwesome5 name="file-pdf" size={20} color="#FFF" style={{ marginRight: 10 }} />
-                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>Télécharger mon rapport (PDF)</Text>
-                  </TouchableOpacity>
-                  <Text style={{ color: theme.icon, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 40 }}>
-                    Retrouvez également ce rapport à tout moment dans Paramètres Nutrition.
-                  </Text>
-                </Animated.View>
-              )}
             </View>
           }
         />
@@ -618,6 +610,39 @@ ${stateInstruction}`;
     );
   };
 
+  const renderSuccessBilan = () => (
+    <Animated.View entering={FadeInUp.duration(600)} style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
+      <Animated.View entering={FadeInUp.delay(300).springify()} style={{ alignItems: 'center', marginBottom: 40 }}>
+        <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: theme.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+          <MaterialIcons name="check-circle" size={60} color={theme.primary} />
+        </View>
+        <Text style={{ fontSize: 28, fontWeight: 'bold', color: theme.text, textAlign: 'center', marginBottom: 15 }}>Bilan Terminé !</Text>
+        <Text style={{ fontSize: 16, color: theme.icon, textAlign: 'center', lineHeight: 24, paddingHorizontal: 20 }}>
+          J'ai analysé tes habitudes et calculé tes objectifs sur-mesure. Ton profil nutritionnel est maintenant configuré.
+        </Text>
+      </Animated.View>
+
+      <Animated.View entering={FadeInUp.delay(600).springify()} style={{ width: '100%', alignItems: 'center' }}>
+        <TouchableOpacity 
+          onPress={() => currentUser && generateAndShareReport(currentUser.id)}
+          style={{ backgroundColor: theme.surfaceSecondary, width: '90%', paddingVertical: 18, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: theme.border }}
+        >
+          <FontAwesome5 name="file-pdf" size={20} color={theme.primary} style={{ marginRight: 12 }} />
+          <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 16 }}>Voir mon Rapport Détaillé</Text>
+        </TouchableOpacity>
+
+        <CustomButton 
+          title="Découvrir mes objectifs" 
+          onPress={() => {
+            setNutritionProfile({...nutritionProfile, is_bilan_done: true});
+            setViewState(VIEW_STATES.HUB);
+          }}
+          style={{ width: '90%' }} 
+        />
+      </Animated.View>
+    </Animated.View>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Header 
@@ -647,6 +672,7 @@ ${stateInstruction}`;
       )}
       {viewState === VIEW_STATES.HUB && renderHub()}
       {(viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN) && renderChatInterface()}
+      {viewState === VIEW_STATES.SUCCESS_BILAN && renderSuccessBilan()}
       
     </View>
   );
