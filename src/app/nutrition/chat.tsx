@@ -234,7 +234,8 @@ Rubriques à explorer ENSUITE :
 6. Tolérances Cliniques : Allergies, aversions, sommeil, digestion.
 
 Dès que tu as toutes ces informations, utilise OBLIGATOIREMENT l'outil 'finalize_initial_assessment' pour valider le bilan.
-Tu DOIS impérativement calculer le BMR de l'athlète puis générer dans 'targets_per_activity' les macros exacts pour TOUS les niveaux d'activité, en utilisant obligatoirement les clés anglaises suivantes : sedentary, light, moderate, intense, very_intense.
+Tu DOIS impérativement calculer le BMR de l'athlète puis générer les macros exacts pour TOUS les niveaux d'activité.
+ATTENTION : Ne crée AUCUN objet imbriqué. Tu dois remplir directement à la racine de la fonction CHAQUE clé individuelle exigée par le schéma (sedentary_calories, sedentary_proteins, light_calories, moderate_calories, intense_calories, very_intense_calories, etc.).
 Méthode de calcul stricte : 
 1. BMR (Mifflin-St Jeor).
 2. Calories = BMR * facteur (sedentary:1.2, light:1.375, moderate:1.55, intense:1.725, very_intense:1.9).
