@@ -15,6 +15,7 @@ import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { CDLogo } from '../../components/CDLogo';
 import { WeightPickerWheel } from '../../components/WeightPickerWheel';
 import { HeightPickerWheel } from '../../components/HeightPickerWheel';
+import { BirthdatePickerWheel } from '../../components/BirthdatePickerWheel';
 import Animated, { FadeInUp, FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { fetchAthleteAIContext } from './_aiContext';
@@ -227,7 +228,7 @@ L'athlète effectue son bilan initial. Ton but est de construire son dossier com
 POSE LES QUESTIONS SÉQUENTIELLEMENT, JAMAIS EN BLOC (une à la fois) pour simuler un entretien clinique.
 TA TOUTE PREMIÈRE QUESTION DOIT EXPLICITEMENT DEMANDER SON POIDS (Vérifie d'abord si on l'a déjà: Poids=${contextData?.profile?.weightkg || '?'}).
 TA DEUXIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SA TAILLE (Vérifie d'abord si on l'a déjà: Taille=${contextData?.profile?.heightcm || '?'}).
-TA TROISIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SON ÂGE (Vérifie d'abord si on l'a déjà: Âge=${contextData?.profile?.birthdate ? 'Oui' : 'Non'}).
+TA TROISIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SA DATE DE NAISSANCE (Vérifie d'abord si on l'a déjà: Date=${contextData?.profile?.birthdate ? 'Oui' : 'Non'}).
 Ne demande que les informations manquantes parmi ces trois points.
 Rubriques à explorer ENSUITE :
 3. Équipement de suivi : Demande-lui s'il possède une balance à disposition, et si oui, s'il s'agit d'une balance classique ou d'un impédancemètre.
@@ -552,6 +553,7 @@ ${stateInstruction}`;
     // Le premier message invisible de l'utilisateur n'est pas dans l'état local `messages`, donc la réponse de l'IA est le message #1
     const isWaitingForWeight = viewState === VIEW_STATES.CHAT && !nutritionProfile?.is_bilan_done && messages.length === 1;
     const isWaitingForHeight = viewState === VIEW_STATES.CHAT && !nutritionProfile?.is_bilan_done && messages.length === 3;
+    const isWaitingForBirthdate = viewState === VIEW_STATES.CHAT && !nutritionProfile?.is_bilan_done && messages.length === 5;
 
     return (
       <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -560,7 +562,7 @@ ${stateInstruction}`;
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={[styles.chatContainer, (isWaitingForWeight || isWaitingForHeight) && { paddingBottom: 350 }]}
+          contentContainerStyle={[styles.chatContainer, (isWaitingForWeight || isWaitingForHeight || isWaitingForBirthdate) && { paddingBottom: 350 }]}
           showsVerticalScrollIndicator={false}
           ListFooterComponent={() => 
             <View>
@@ -585,6 +587,10 @@ ${stateInstruction}`;
         ) : isWaitingForHeight ? (
           <View style={{ position: 'absolute', bottom: 0, width: '100%', zIndex: 10 }}>
             <HeightPickerWheel gender={athleteGender} onValidate={(height) => sendMessage(`Ma taille est de ${height} cm.`)} />
+          </View>
+        ) : isWaitingForBirthdate ? (
+          <View style={{ position: 'absolute', bottom: 0, width: '100%', zIndex: 10 }}>
+            <BirthdatePickerWheel onValidate={(birthdate) => sendMessage(`Ma date de naissance est le ${birthdate}.`)} />
           </View>
         ) : (
           <View style={[styles.inputArea, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
