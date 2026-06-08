@@ -298,21 +298,24 @@ ${contextData?.hasPainToday ? '⚠️ DOULEUR SIGNALÉE : Adapte ton discours.' 
 ${stateInstruction}`;
 
       const callGemini = async (history: any[]) => {
+        const activeTools = (!nutritionProfile?.is_bilan_done && history.length < 8) ? undefined : tools;
+        const bodyPayload: any = {
+          contents: history,
+          systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+          ]
+        };
+        if (activeTools) bodyPayload.tools = activeTools;
+
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: history,
-            tools: tools,
-            systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-            safetySettings: [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-            ]
-          }),
+          body: JSON.stringify(bodyPayload),
         });
         const d = await response.json();
         if (d.error) throw new Error(d.error.message);
