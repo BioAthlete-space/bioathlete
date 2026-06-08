@@ -43,15 +43,27 @@ const tools = [{
       parameters: {
         type: "OBJECT",
         properties: {
-          baseline_report: { type: "STRING", description: "Synthèse TRÈS détaillée du bilan: points forts, points faibles, analyse du métabolisme et conseils concrets. Utiliser des sauts de ligne pour un beau rendu PDF." },
+          baseline_report: { type: "STRING", description: "Synthèse détaillée du bilan: points forts, métabolisme et conseils." },
           preferences: { 
-            type: "STRING", 
-            description: "Chaîne JSON contenant les préférences. Exemple: {\"allergies\":\"aucune\", \"aversions\":\"légumes\", \"favorites\":\"poulet\"}"
+            type: "OBJECT", 
+            description: "Objet contenant les préférences",
+            properties: {
+              allergies: { type: "STRING" },
+              aversions: { type: "STRING" },
+              favorites: { type: "STRING" }
+            }
           },
           clinical_state: { type: "STRING", description: "digestion, sommeil, historique de blessures" },
           targets_per_activity: { 
-            type: "STRING", 
-            description: "Chaîne JSON OBLIGATOIRE contenant les macros. Format strict: {\"sedentary\": {\"calories\": 2000, \"proteins\": 150, \"carbs\": 200, \"fats\": 70}, \"light\": {...}, \"moderate\": {...}, \"intense\": {...}, \"very_intense\": {...}}"
+            type: "OBJECT", 
+            description: "Objet contenant les macros",
+            properties: {
+              sedentary: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
+              light: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
+              moderate: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
+              intense: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
+              very_intense: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } }
+            }
           }
         },
         required: ["baseline_report", "targets_per_activity"]
