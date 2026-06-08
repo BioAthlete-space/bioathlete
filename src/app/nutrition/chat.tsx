@@ -44,29 +44,17 @@ const tools = [{
         type: "OBJECT",
         properties: {
           baseline_report: { type: "STRING", description: "Synthèse détaillée du bilan: points forts, métabolisme et conseils." },
-          preferences: { 
-            type: "OBJECT", 
-            description: "Objet contenant les préférences",
-            properties: {
-              allergies: { type: "STRING" },
-              aversions: { type: "STRING" },
-              favorites: { type: "STRING" }
-            }
-          },
+          preferences_allergies: { type: "STRING" },
+          preferences_aversions: { type: "STRING" },
+          preferences_favorites: { type: "STRING" },
           clinical_state: { type: "STRING", description: "digestion, sommeil, historique de blessures" },
-          targets_per_activity: { 
-            type: "OBJECT", 
-            description: "Objet contenant les macros",
-            properties: {
-              sedentary: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
-              light: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
-              moderate: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
-              intense: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } },
-              very_intense: { type: "OBJECT", properties: { calories: { type: "NUMBER" }, proteins: { type: "NUMBER" }, carbs: { type: "NUMBER" }, fats: { type: "NUMBER" } } }
-            }
-          }
+          sedentary_calories: { type: "NUMBER" }, sedentary_proteins: { type: "NUMBER" }, sedentary_carbs: { type: "NUMBER" }, sedentary_fats: { type: "NUMBER" },
+          light_calories: { type: "NUMBER" }, light_proteins: { type: "NUMBER" }, light_carbs: { type: "NUMBER" }, light_fats: { type: "NUMBER" },
+          moderate_calories: { type: "NUMBER" }, moderate_proteins: { type: "NUMBER" }, moderate_carbs: { type: "NUMBER" }, moderate_fats: { type: "NUMBER" },
+          intense_calories: { type: "NUMBER" }, intense_proteins: { type: "NUMBER" }, intense_carbs: { type: "NUMBER" }, intense_fats: { type: "NUMBER" },
+          very_intense_calories: { type: "NUMBER" }, very_intense_proteins: { type: "NUMBER" }, very_intense_carbs: { type: "NUMBER" }, very_intense_fats: { type: "NUMBER" }
         },
-        required: ["baseline_report", "targets_per_activity"]
+        required: ["baseline_report", "sedentary_calories", "moderate_calories", "intense_calories"]
       }
     },
     {
@@ -254,7 +242,8 @@ Méthode de calcul stricte :
 4. Lipides = 1.0g/kg de poids corporel.
 5. Glucides = le reste des calories divisé par 4.
 Dans le champ 'baseline_report' de l'outil, rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion). Ce rapport finira en PDF pour lui.
-CRITIQUE ET SÉPARATION STRICTE : Tu dois choisir un seul mode. Soit tu réponds par du texte (pour poser une question), soit tu appelles la fonction de sauvegarde. Tu ne dois JAMAIS essayer de faire les deux en même temps. La fonction 'finalize_initial_assessment' ne doit être appelée que lorsque TOUTES les informations sont collectées. S'il manque une seule information (comme l'âge, la taille, etc.), tu dois poser une question textuelle SANS appeler l'outil. Ne génère jamais de texte d'introduction si tu appelles l'outil.`;
+CRITIQUE ET SÉPARATION STRICTE : Tu dois choisir un seul mode. Soit tu réponds par du texte (pour poser une question), soit tu appelles la fonction de sauvegarde. Tu ne dois JAMAIS essayer de faire les deux en même temps. La fonction 'finalize_initial_assessment' ne doit être appelée que lorsque TOUTES les informations sont collectées. S'il manque une seule information (comme l'âge, la taille, etc.), tu dois poser une question textuelle SANS appeler l'outil. Ne génère jamais de texte d'introduction si tu appelles l'outil.
+CRITIQUE 2 : Lors de l'appel d'une fonction, renvoie uniquement l'objet JSON avec les clés de premier niveau (sedentary_calories, etc.). Ne préfixe jamais la fonction avec 'default_api.' ou aucun autre espace de nom.`;
       } else if (currentView === VIEW_STATES.CHECKIN) {
         stateInstruction = `[MODE SUIVI - CHECK-IN]
 L'athlète effectue son check-in régulier. Demande comment il se sent. Si un ajustement est nécessaire, utilise l'outil 'adjust_macros' puis conclus. S'il mentionne une nouvelle intolérance ou préférence, utilise l'outil 'update_memory'.`;
@@ -337,11 +326,19 @@ ${stateInstruction}`;
 
         if (fc.name === 'finalize_initial_assessment') {
           if (user) {
-            let targets = {};
-            try { targets = typeof fc.args.targets_per_activity === 'string' ? JSON.parse(fc.args.targets_per_activity) : (fc.args.targets_per_activity || {}); } catch(e) {}
+            let targets = {
+              sedentary: { calories: fc.args.sedentary_calories || 2000, proteins: fc.args.sedentary_proteins || 150, carbs: fc.args.sedentary_carbs || 200, fats: fc.args.sedentary_fats || 70 },
+              light: { calories: fc.args.light_calories || 2300, proteins: fc.args.light_proteins || 150, carbs: fc.args.light_carbs || 250, fats: fc.args.light_fats || 70 },
+              moderate: { calories: fc.args.moderate_calories || 2500, proteins: fc.args.moderate_proteins || 150, carbs: fc.args.moderate_carbs || 280, fats: fc.args.moderate_fats || 70 },
+              intense: { calories: fc.args.intense_calories || 2800, proteins: fc.args.intense_proteins || 150, carbs: fc.args.intense_carbs || 320, fats: fc.args.intense_fats || 70 },
+              very_intense: { calories: fc.args.very_intense_calories || 3100, proteins: fc.args.very_intense_proteins || 150, carbs: fc.args.very_intense_carbs || 380, fats: fc.args.very_intense_fats || 70 }
+            };
             
-            let prefs = {};
-            try { prefs = typeof fc.args.preferences === 'string' ? JSON.parse(fc.args.preferences) : (fc.args.preferences || {}); } catch(e) {}
+            let prefs = {
+              allergies: fc.args.preferences_allergies || '',
+              aversions: fc.args.preferences_aversions || '',
+              favorites: fc.args.preferences_favorites || ''
+            };
 
             const baseLevel = targets["moderate"] || targets["Modéré"] || Object.values(targets)[0] || { calories: 2500, proteins: 150, carbs: 250, fats: 80 };
             
