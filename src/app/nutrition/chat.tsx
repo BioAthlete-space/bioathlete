@@ -254,7 +254,7 @@ Méthode de calcul stricte :
 4. Lipides = 1.0g/kg de poids corporel.
 5. Glucides = le reste des calories divisé par 4.
 Dans le champ 'baseline_report' de l'outil, rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion). Ce rapport finira en PDF pour lui.
-CRITIQUE : Si tu as assez d'infos pour finaliser le bilan, appelle UNIQUEMENT l'outil 'finalize_initial_assessment'. Ne génère absolument AUCUN texte avec cet appel. Si tu n'as pas assez d'infos, pose simplement ta question textuelle sans appeler l'outil.`;
+CRITIQUE ET SÉPARATION STRICTE : Tu dois choisir un seul mode. Soit tu réponds par du texte (pour poser une question), soit tu appelles la fonction de sauvegarde. Tu ne dois JAMAIS essayer de faire les deux en même temps. La fonction 'finalize_initial_assessment' ne doit être appelée que lorsque TOUTES les informations sont collectées. S'il manque une seule information (comme l'âge, la taille, etc.), tu dois poser une question textuelle SANS appeler l'outil. Ne génère jamais de texte d'introduction si tu appelles l'outil.`;
       } else if (currentView === VIEW_STATES.CHECKIN) {
         stateInstruction = `[MODE SUIVI - CHECK-IN]
 L'athlète effectue son check-in régulier. Demande comment il se sent. Si un ajustement est nécessaire, utilise l'outil 'adjust_macros' puis conclus. S'il mentionne une nouvelle intolérance ou préférence, utilise l'outil 'update_memory'.`;
