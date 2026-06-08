@@ -236,6 +236,7 @@ Rubriques à explorer ENSUITE :
 Dès que tu as toutes ces informations, utilise OBLIGATOIREMENT l'outil 'finalize_initial_assessment' pour valider le bilan.
 Tu DOIS impérativement calculer le BMR de l'athlète puis générer les macros exacts pour TOUS les niveaux d'activité.
 ATTENTION : Ne crée AUCUN objet imbriqué. Tu dois remplir directement à la racine de la fonction CHAQUE clé individuelle exigée par le schéma (sedentary_calories, sedentary_proteins, light_calories, moderate_calories, intense_calories, very_intense_calories, etc.).
+CRITIQUE 3 : Toutes les valeurs (calories, protéines, etc.) DOIVENT être des nombres entiers bruts, sans AUCUNE unité de mesure (écris 2500, pas '2500 kcal').
 Méthode de calcul stricte : 
 1. BMR (Mifflin-St Jeor).
 2. Calories = BMR * facteur (sedentary:1.2, light:1.375, moderate:1.55, intense:1.725, very_intense:1.9).
@@ -292,7 +293,7 @@ ${stateInstruction}`;
         const bodyPayload: any = {
           contents: history,
           systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
           safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
