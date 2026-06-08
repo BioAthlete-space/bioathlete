@@ -43,7 +43,6 @@ const tools = [{
       parameters: {
         type: "OBJECT",
         properties: {
-          baseline_report: { type: "STRING", description: "Synthèse détaillée du bilan: points forts, métabolisme et conseils." },
           preferences_allergies: { type: "STRING" },
           preferences_aversions: { type: "STRING" },
           preferences_favorites: { type: "STRING" },
@@ -54,7 +53,7 @@ const tools = [{
           intense_calories: { type: "NUMBER" }, intense_proteins: { type: "NUMBER" }, intense_carbs: { type: "NUMBER" }, intense_fats: { type: "NUMBER" },
           very_intense_calories: { type: "NUMBER" }, very_intense_proteins: { type: "NUMBER" }, very_intense_carbs: { type: "NUMBER" }, very_intense_fats: { type: "NUMBER" }
         },
-        required: ["baseline_report", "sedentary_calories", "moderate_calories", "intense_calories"]
+        required: ["sedentary_calories", "moderate_calories", "intense_calories"]
       }
     },
     {
@@ -243,9 +242,10 @@ Méthode de calcul stricte :
 3. Protéines = 2.0g/kg de poids corporel.
 4. Lipides = 1.0g/kg de poids corporel.
 5. Glucides = le reste des calories divisé par 4.
-Dans le champ 'baseline_report' de l'outil, rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion). Ce rapport finira en PDF pour lui.
-CRITIQUE ET SÉPARATION STRICTE : Tu dois choisir un seul mode. Soit tu réponds par du texte (pour poser une question), soit tu appelles la fonction de sauvegarde. Tu ne dois JAMAIS essayer de faire les deux en même temps. La fonction 'finalize_initial_assessment' ne doit être appelée que lorsque TOUTES les informations sont collectées. S'il manque une seule information (comme l'âge, la taille, etc.), tu dois poser une question textuelle SANS appeler l'outil. Ne génère jamais de texte d'introduction si tu appelles l'outil.
-CRITIQUE 2 : Lors de l'appel d'une fonction, renvoie uniquement l'objet JSON avec les clés de premier niveau (sedentary_calories, etc.). Ne préfixe jamais la fonction avec 'default_api.' ou aucun autre espace de nom.`;
+Rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion) EN TEXTE LIBRE (pas dans l'outil). Ce rapport finira en PDF pour lui.
+Dès que tu as rédigé ce rapport textuel, utilise OBLIGATOIREMENT l'outil 'finalize_initial_assessment' pour valider le bilan avec les chiffres. L'APPEL DE L'OUTIL EST OBLIGATOIRE APRÈS LE TEXTE.
+ATTENTION : L'outil ne doit contenir QUE les macros et les préférences, aucun texte de rapport. Tu dois remplir directement à la racine de la fonction CHAQUE clé individuelle exigée par le schéma (sedentary_calories, sedentary_proteins, light_calories, moderate_calories, intense_calories, very_intense_calories, etc.).
+CRITIQUE 3 : Toutes les valeurs (calories, protéines, etc.) DOIVENT être des nombres entiers bruts, sans AUCUNE unité de mesure (écris 2500, pas '2500 kcal').`;
       } else if (currentView === VIEW_STATES.CHECKIN) {
         stateInstruction = `[MODE SUIVI - CHECK-IN]
 L'athlète effectue son check-in régulier. Demande comment il se sent. Si un ajustement est nécessaire, utilise l'outil 'adjust_macros' puis conclus. S'il mentionne une nouvelle intolérance ou préférence, utilise l'outil 'update_memory'.`;
@@ -293,7 +293,7 @@ ${stateInstruction}`;
         const bodyPayload: any = {
           contents: history,
           systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
           safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -346,7 +346,7 @@ ${stateInstruction}`;
             
             await supabase.from('ai_athlete_memory').upsert({
               athlete_id: user.id,
-              baseline_report: fc.args.baseline_report,
+              baseline_report: initialText || "Bilan complété.",
               preferences: prefs,
               clinical_state: fc.args.clinical_state || '',
               macro_targets: targets
