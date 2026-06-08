@@ -6,6 +6,7 @@ import { Layout } from '../../constants/Layout';
 import { Typography } from '../../constants/Typography';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
+import { SelectionModal } from '../../components/SelectionModal';
 import { MaterialIcons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
@@ -20,6 +21,9 @@ export default function EditEntryScreen() {
   const [saving, setSaving] = useState(false);
   const [entry, setEntry] = useState<any>(null);
   const [quantityStr, setQuantityStr] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState('g');
+  const [unitWeight, setUnitWeight] = useState(1);
+  const [unitModalVisible, setUnitModalVisible] = useState(false);
 
   // Values per 100g (calculated from DB)
   const [macros100, setMacros100] = useState({ calories: 0, proteins: 0, carbs: 0, fats: 0 });
@@ -38,15 +42,21 @@ export default function EditEntryScreen() {
 
     if (data && !error) {
       setEntry(data);
-      const qty = parseFloat(data.quantity_g) || 0;
-      setQuantityStr(qty.toString());
+      const qtyGrams = parseFloat(data.quantity_g) || 0;
+      const dbUnit = data.unit || 'g';
+      const dbOriginalQty = parseFloat(data.original_quantity);
+      const originalQty = isNaN(dbOriginalQty) ? qtyGrams : dbOriginalQty;
       
-      if (qty > 0) {
+      setSelectedUnit(dbUnit);
+      setQuantityStr(originalQty.toString());
+      setUnitWeight(originalQty > 0 ? qtyGrams / originalQty : 1);
+      
+      if (qtyGrams > 0) {
         setMacros100({
-          calories: (parseFloat(data.calories) / qty) * 100,
-          proteins: (parseFloat(data.proteins) / qty) * 100,
-          carbs: (parseFloat(data.carbs) / qty) * 100,
-          fats: (parseFloat(data.fats) / qty) * 100,
+          calories: (parseFloat(data.calories) / qtyGrams) * 100,
+          proteins: (parseFloat(data.proteins) / qtyGrams) * 100,
+          carbs: (parseFloat(data.carbs) / qtyGrams) * 100,
+          fats: (parseFloat(data.fats) / qtyGrams) * 100,
         });
       }
     }
@@ -54,11 +64,13 @@ export default function EditEntryScreen() {
   };
 
   const handleSave = async () => {
-    const qty = parseFloat(quantityStr);
-    if (isNaN(qty) || qty <= 0) {
+    const parsedInput = parseFloat(quantityStr);
+    if (isNaN(parsedInput) || parsedInput <= 0) {
       alert("Veuillez entrer une quantité valide.");
       return;
     }
+
+    const qty = (selectedUnit === 'g' || selectedUnit === 'ml') ? parsedInput : parsedInput * unitWeight;
 
     setSaving(true);
     
@@ -92,11 +104,13 @@ export default function EditEntryScreen() {
 
     // Update the entry itself
     await supabase.from('nutrition_entries').update({
-      quantity_g: qty,
+      quantity_g: qty, // this is final qty in grams
       calories: newCalories,
       proteins: newProteins,
       carbs: newCarbs,
-      fats: newFats
+      fats: newFats,
+      unit: selectedUnit,
+      original_quantity: parsedInput
     }).eq('id', entry.id);
 
     setSaving(false);
@@ -125,7 +139,35 @@ export default function EditEntryScreen() {
     );
   }
 
-  const currentQty = parseFloat(quantityStr) || 0;
+  const handleDelete = async () => {
+    setSaving(true);
+    const { data: logData } = await supabase
+      .from('nutrition_logs')
+      .select('id, total_calories, total_proteins, total_carbs, total_fats')
+      .eq('id', entry.log_id)
+      .single();
+
+    if (logData) {
+      await supabase.from('nutrition_logs').update({
+        total_calories: Math.max(0, parseFloat(logData.total_calories) - parseFloat(entry.calories)),
+        total_proteins: Math.max(0, parseFloat(logData.total_proteins) - parseFloat(entry.proteins)),
+        total_carbs: Math.max(0, parseFloat(logData.total_carbs) - parseFloat(entry.carbs)),
+        total_fats: Math.max(0, parseFloat(logData.total_fats) - parseFloat(entry.fats))
+      }).eq('id', entry.log_id);
+    }
+
+    await supabase.from('nutrition_entries').delete().eq('id', entry.id);
+    setSaving(false);
+    
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/nutrition/summary');
+    }
+  };
+
+  const parsedInput = parseFloat(quantityStr) || 0;
+  const currentQty = (selectedUnit === 'g' || selectedUnit === 'ml') ? parsedInput : parsedInput * unitWeight;
   const currentCals = Math.round((macros100.calories * currentQty) / 100);
   const currentProts = Math.round((macros100.proteins * currentQty) / 100);
   const currentCarbs = Math.round((macros100.carbs * currentQty) / 100);
@@ -139,98 +181,100 @@ export default function EditEntryScreen() {
             <MaterialIcons name="close" size={28} color={theme.text} />
           </TouchableOpacity>
         }
-        title="Éditer l'aliment"
+        title="Détails de l'aliment"
       />
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Animated.View entering={FadeInUp.springify()}>
-          <View style={styles.headerRow}>
-            <View style={[styles.iconWrapper, { backgroundColor: theme.surfaceSecondary }]}>
-              <MaterialIcons name="restaurant" size={32} color={theme.primary} />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Animated.View entering={FadeInUp.springify()} style={{ flex: 1, justifyContent: 'center' }}>
+          <Card style={[styles.foodDetailsCard, { marginBottom: Layout.spacing.xl }]} elevation="medium">
+            <View style={{ marginBottom: Layout.spacing.lg }}>
+              <Text style={[styles.selectedFoodName, { color: theme.text, textAlign: 'center', marginBottom: Layout.spacing.md }]}>{entry.food_name}</Text>
+              
+              {entry.is_ai_estimated && (
+                <View style={{ backgroundColor: '#EDE9FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, alignSelf: 'center' }}>
+                  <Text style={{ color: '#8B5CF6', fontWeight: 'bold' }}>✨ Estimation IA</Text>
+                </View>
+              )}
             </View>
-            <View style={styles.headerTexts}>
-              <Text style={[styles.foodName, { color: theme.text }]}>{entry.food_name}</Text>
+
+            <View style={[styles.macrosSummary, { backgroundColor: theme.surfaceSecondary }]}>
+              {['Calories', 'Protéines', 'Glucides', 'Lipides'].map((macro, idx) => {
+                let val = 0; let unit = 'g';
+                if (idx === 0) { val = currentCals; unit = 'kcal'; }
+                if (idx === 1) val = currentProts;
+                if (idx === 2) val = currentCarbs;
+                if (idx === 3) val = currentFats;
+                return (
+                  <View key={macro} style={styles.macroBox}>
+                    <Text style={[styles.macroVal, { color: theme.text }]}>{Math.round(val)}{unit}</Text>
+                    <Text style={[styles.macroLabel, { color: theme.icon }]}>{macro}</Text>
+                  </View>
+                );
+              })}
             </View>
-          </View>
 
-          {!entry.is_ai_estimated && (
-            <Card style={styles.card}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Quantité consommée (g/ml)</Text>
-              <View style={[styles.qtyInputContainer, { borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}>
-                <TextInput
-                  style={[styles.input, { color: theme.primary }]}
-                  value={quantityStr}
-                  onChangeText={setQuantityStr}
-                  keyboardType="numeric"
-                  maxLength={4}
-                />
-              </View>
-            </Card>
-          )}
-
-          <Card style={styles.card}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              {entry.is_ai_estimated ? "Estimation nutritionnelle" : `Pour ${currentQty || 0}g`}
-            </Text>
-            <View style={styles.macrosGrid}>
-              <View style={[styles.macroBox, { backgroundColor: 'rgba(79, 70, 229, 0.1)' }]}>
-                <Text style={[styles.macroValue, { color: theme.primary }]}>{currentCals}</Text>
-                <Text style={[styles.macroLabel, { color: theme.primary }]}>kcal</Text>
-              </View>
-              <View style={[styles.macroBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <Text style={[styles.macroValue, { color: '#3B82F6' }]}>{currentProts}g</Text>
-                <Text style={[styles.macroLabel, { color: '#3B82F6' }]}>Protéines</Text>
-              </View>
-              <View style={[styles.macroBox, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                <Text style={[styles.macroValue, { color: '#F59E0B' }]}>{currentCarbs}g</Text>
-                <Text style={[styles.macroLabel, { color: '#F59E0B' }]}>Glucides</Text>
-              </View>
-              <View style={[styles.macroBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                <Text style={[styles.macroValue, { color: '#EF4444' }]}>{currentFats}g</Text>
-                <Text style={[styles.macroLabel, { color: '#EF4444' }]}>Lipides</Text>
-              </View>
+            <View style={[styles.quantityContainer, { justifyContent: 'center', gap: Layout.spacing.md, marginTop: Layout.spacing.md }]}>
+              {saving ? (
+                <ActivityIndicator color={theme.primary} />
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Layout.spacing.md }}>
+                  <TextInput
+                    style={[styles.quantityInput, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                    keyboardType="numeric"
+                    value={quantityStr}
+                    onChangeText={setQuantityStr}
+                    editable={!entry.is_ai_estimated}
+                  />
+                  <TouchableOpacity 
+                    style={[styles.unitSelector, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                    onPress={() => setUnitModalVisible(true)}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>
+                      {selectedUnit === 'g' ? 'g' : selectedUnit === 'ml' ? 'ml' : selectedUnit}
+                    </Text>
+                    <MaterialIcons name="keyboard-arrow-down" size={24} color={theme.icon} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-          </Card>
 
-          {!entry.is_ai_estimated && (
-            <Card style={[styles.card, { backgroundColor: theme.surfaceSecondary, borderWidth: 0 }]} elevation="none">
-              <Text style={[styles.sectionTitle, { color: theme.text, fontSize: 14 }]}>Valeurs pour 100g</Text>
-              <View style={styles.valuesList}>
-                <View style={styles.valueRow}>
-                  <Text style={{ color: theme.icon }}>Énergie</Text>
-                  <Text style={{ color: theme.text, fontWeight: 'bold' }}>{Math.round(macros100.calories)} kcal</Text>
-                </View>
-                <View style={styles.valueRow}>
-                  <Text style={{ color: theme.icon }}>Protéines</Text>
-                  <Text style={{ color: theme.text, fontWeight: 'bold' }}>{Math.round(macros100.proteins)} g</Text>
-                </View>
-                <View style={styles.valueRow}>
-                  <Text style={{ color: theme.icon }}>Glucides</Text>
-                  <Text style={{ color: theme.text, fontWeight: 'bold' }}>{Math.round(macros100.carbs)} g</Text>
-                </View>
-                <View style={styles.valueRow}>
-                  <Text style={{ color: theme.icon }}>Lipides</Text>
-                  <Text style={{ color: theme.text, fontWeight: 'bold' }}>{Math.round(macros100.fats)} g</Text>
-                </View>
-              </View>
-            </Card>
-          )}
-
-          {!entry.is_ai_estimated && (
-            <TouchableOpacity 
-              style={[styles.saveBtn, { backgroundColor: theme.primary }, saving && { opacity: 0.7 }]}
-              onPress={handleSave}
+            {!entry.is_ai_estimated && (
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: theme.primary, marginTop: Layout.spacing.xl }]}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                <Text style={styles.saveBtnText}>Mettre à jour</Text>
+              </TouchableOpacity>
+            )}
+            
+            <TouchableOpacity
+              style={[styles.saveBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#EF4444', marginTop: entry.is_ai_estimated ? Layout.spacing.xl : Layout.spacing.md }]}
+              onPress={handleDelete}
               disabled={saving}
             >
-              {saving ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text style={styles.saveBtnText}>Enregistrer</Text>
-              )}
+              <Text style={[styles.saveBtnText, { color: '#EF4444' }]}>Supprimer</Text>
             </TouchableOpacity>
-          )}
+          </Card>
         </Animated.View>
       </ScrollView>
+
+      <SelectionModal
+        visible={unitModalVisible}
+        onClose={() => setUnitModalVisible(false)}
+        title="Unité"
+        options={[
+          ...(entry?.unit && entry.unit !== 'g' && entry.unit !== 'ml' ? [{ label: `${entry.unit.charAt(0).toUpperCase() + entry.unit.slice(1)}s`, value: entry.unit }] : []),
+          { label: 'Grammes (g)', value: 'g' },
+          { label: 'Millilitres (ml)', value: 'ml' }
+        ]}
+        onSelect={(val) => {
+          setSelectedUnit(val);
+          if (val === 'g' || val === 'ml') setQuantityStr('100');
+          else setQuantityStr('1');
+          setUnitModalVisible(false);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -238,21 +282,16 @@ export default function EditEntryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   backBtn: { padding: Layout.spacing.xs },
-  content: { padding: Layout.spacing.lg, paddingBottom: 100 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Layout.spacing.xl },
-  iconWrapper: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: Layout.spacing.md },
-  headerTexts: { flex: 1 },
-  foodName: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold },
-  card: { padding: Layout.spacing.lg, marginBottom: Layout.spacing.lg },
-  sectionTitle: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, marginBottom: Layout.spacing.md },
-  qtyInputContainer: { borderWidth: 1, borderRadius: Layout.borderRadius.md, height: 64 },
-  input: { flex: 1, fontSize: 32, fontWeight: 'bold', textAlign: 'center' },
-  macrosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  macroBox: { width: '48%', padding: Layout.spacing.md, borderRadius: 12, alignItems: 'center' },
-  macroValue: { fontSize: Typography.sizes.xl, fontWeight: 'bold', marginBottom: 2 },
-  macroLabel: { fontSize: Typography.sizes.xs, fontWeight: 'bold', textTransform: 'uppercase' },
-  valuesList: { gap: 8 },
-  valueRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: 'rgba(150,150,150,0.1)' },
-  saveBtn: { height: 56, borderRadius: Layout.borderRadius.md, alignItems: 'center', justifyContent: 'center', marginTop: Layout.spacing.md },
-  saveBtnText: { color: '#FFF', fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }
+  content: { padding: Layout.spacing.lg, paddingBottom: 100, flexGrow: 1, justifyContent: 'center' },
+  foodDetailsCard: { padding: Layout.spacing.lg },
+  selectedFoodName: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold },
+  macrosSummary: { flexDirection: 'row', gap: Layout.spacing.sm, padding: Layout.spacing.md, borderRadius: Layout.borderRadius.lg, marginBottom: Layout.spacing.xl },
+  macroBox: { alignItems: 'center', flex: 1 },
+  macroVal: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold },
+  macroLabel: { fontSize: Typography.sizes.xs, marginTop: 4 },
+  quantityContainer: { flexDirection: 'row', alignItems: 'center' },
+  quantityInput: { width: 100, height: 56, borderWidth: 1, borderRadius: Layout.borderRadius.md, textAlign: 'center', fontSize: Typography.sizes.lg, fontWeight: 'bold' },
+  unitSelector: { borderWidth: 1, borderRadius: Layout.borderRadius.md, height: 56, paddingHorizontal: Layout.spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minWidth: 100 },
+  saveBtn: { padding: Layout.spacing.md, borderRadius: 25, alignItems: 'center' },
+  saveBtnText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold }
 });

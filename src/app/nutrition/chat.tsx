@@ -1,22 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, Image
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../hooks/useThemeColor';
 import { Layout } from '../../constants/Layout';
 import { Typography } from '../../constants/Typography';
 import { Header } from '../../components/Header';
 import { CustomButton } from '../../components/CustomButton';
 import { Card } from '../../components/Card';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { CDLogo } from '../../components/CDLogo';
-import { QuickReplies } from '../../components/QuickReplies';
-import Animated, { FadeInUp, FadeInDown, SlideInRight, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
+import { WeightPickerWheel } from '../../components/WeightPickerWheel';
+import { HeightPickerWheel } from '../../components/HeightPickerWheel';
+import Animated, { FadeInUp, FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { fetchAthleteAIContext } from './_aiContext';
+import { generateAndShareReport } from '../../lib/pdfGenerator';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Message = {
   id: string;
@@ -28,45 +31,76 @@ const VIEW_STATES = {
   LOADING: 'LOADING',
   LANDING: 'LANDING',
   HUB: 'HUB',
-  ONBOARDING: 'ONBOARDING',
   CHAT: 'CHAT',
   CHECKIN: 'CHECKIN',
 };
 
-const ONBOARDING_STEPS = {
-  DISCIPLINE: 0,
-  TOOLS: 1,
-  METRICS: 2,
-  GOAL: 3,
-};
-
-const CHECKIN_STEPS = {
-  WEIGHT: 0,
-  ENERGY: 1,
-  ADJUSTMENT: 2,
-};
+const tools = [{
+  functionDeclarations: [
+    {
+      name: "finalize_initial_assessment",
+      description: "Appelée automatiquement par l'IA une fois l'enquête initiale terminée. Compile le rapport et génère les premiers objectifs chiffrés. Remplit ai_athlete_memory.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          baseline_report: { type: "STRING", description: "Synthèse TRÈS détaillée du bilan: points forts, points faibles, analyse du métabolisme et conseils concrets. Utiliser des sauts de ligne pour un beau rendu PDF." },
+          preferences: { 
+            type: "STRING", 
+            description: "Chaîne JSON contenant les préférences. Exemple: {\"allergies\":\"aucune\", \"aversions\":\"légumes\", \"favorites\":\"poulet\"}"
+          },
+          clinical_state: { type: "STRING", description: "digestion, sommeil, historique de blessures" },
+          targets_per_activity: { 
+            type: "STRING", 
+            description: "Chaîne JSON OBLIGATOIRE contenant les macros. Format strict: {\"sedentary\": {\"calories\": 2000, \"proteins\": 150, \"carbs\": 200, \"fats\": 70}, \"light\": {...}, \"moderate\": {...}, \"intense\": {...}, \"very_intense\": {...}}"
+          }
+        },
+        required: ["baseline_report", "targets_per_activity"]
+      }
+    },
+    {
+      name: "update_memory",
+      description: "Appelée lors des suivis de routine pour mettre à jour le dossier si une nouvelle information apparaît (ex: lassitude d'un aliment, mauvaise digestion).",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          category: { type: "STRING", enum: ["preferences", "clinical_state", "general"] },
+          new_information: { type: "STRING" }
+        },
+        required: ["category", "new_information"]
+      }
+    },
+    {
+      name: "adjust_macros",
+      description: "Appelée par l'IA pour modifier les cibles macros si le poids stagne ou si la phase d'entraînement change.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          new_kcal: { type: "NUMBER" },
+          new_proteins: { type: "NUMBER" },
+          new_carbs: { type: "NUMBER" },
+          new_fats: { type: "NUMBER" },
+          reason: { type: "STRING" }
+        },
+        required: ["new_kcal", "new_proteins", "new_carbs", "new_fats", "reason"]
+      }
+    }
+  ]
+}];
 
 export default function AINutritionHubScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams();
   
-  // View states
   const [viewState, setViewState] = useState(VIEW_STATES.LOADING);
-  const [subStep, setSubStep] = useState(0);
-  
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  // New Onboarding specific states
-  const [onboardingData, setOnboardingData] = useState({ discipline: '', tools: '', weight: '', height: '', goal: '' });
-  const [isOtherMode, setIsOtherMode] = useState(false);
-  const [otherText, setOtherText] = useState('');
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-
-  // Profile data
   const [nutritionProfile, setNutritionProfile] = useState<any>(null);
+  const [athleteMemory, setAthleteMemory] = useState<any>(null);
+  const [athleteGender, setAthleteGender] = useState('Homme');
 
   useEffect(() => {
     fetchProfile();
@@ -75,7 +109,7 @@ export default function AINutritionHubScreen() {
   const fetchProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      setViewState(VIEW_STATES.LANDING);
+      startBilan();
       return;
     }
     const { data } = await supabase
@@ -84,25 +118,63 @@ export default function AINutritionHubScreen() {
       .eq('athlete_id', user.id)
       .maybeSingle();
 
+    const { data: memoryData } = await supabase
+      .from('ai_athlete_memory')
+      .select('*')
+      .eq('athlete_id', user.id)
+      .maybeSingle();
+      
+    const { data: profileBaseData } = await supabase
+      .from('profiles')
+      .select('gender')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileBaseData && profileBaseData.gender) {
+      setAthleteGender(profileBaseData.gender);
+    }
+      
+    setAthleteMemory(memoryData);
+
     if (data && data.is_bilan_done) {
       setNutritionProfile(data);
-      setViewState(VIEW_STATES.HUB);
+      if (params.autoStart === 'true') {
+        startChat();
+      } else {
+        setViewState(VIEW_STATES.HUB);
+      }
     } else {
-      setViewState(VIEW_STATES.LANDING);
+      startBilan();
     }
   };
 
-  const startBilan = () => {
-    setViewState(VIEW_STATES.ONBOARDING);
-    setSubStep(ONBOARDING_STEPS.DISCIPLINE);
-    setOnboardingData({ discipline: '', tools: '', weight: '', height: '', goal: '' });
-    setIsOtherMode(false);
-    setOtherText('');
+  useEffect(() => {
+    if (!nutritionProfile?.is_bilan_done && viewState === VIEW_STATES.CHAT) {
+      if (messages.length > 0) {
+        AsyncStorage.setItem('@bioathlete_assessment_chat', JSON.stringify(messages)).catch(() => {});
+      }
+    }
+  }, [messages, nutritionProfile, viewState]);
+
+  const startBilan = async () => {
+    setViewState(VIEW_STATES.CHAT);
+    try {
+      const saved = await AsyncStorage.getItem('@bioathlete_assessment_chat');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.length > 0) {
+          setMessages(parsed);
+          return;
+        }
+      }
+    } catch (e) {}
+    
+    setMessages([]);
+    simulateAIResponse("Bonjour, je souhaite commencer mon bilan nutritionnel.", VIEW_STATES.CHAT, [{ role: 'user', parts: [{ text: "Bonjour, je souhaite commencer mon bilan nutritionnel." }] }]);
   };
 
   const startCheckin = () => {
     setViewState(VIEW_STATES.CHECKIN);
-    setSubStep(CHECKIN_STEPS.WEIGHT);
     setMessages([
       {
         id: Date.now().toString(),
@@ -123,24 +195,7 @@ export default function AINutritionHubScreen() {
     ]);
   };
 
-  const getSuggestionsForStep = () => {
-    if (viewState === VIEW_STATES.ONBOARDING) {
-      if (messages.length < 3) return ["Je fais du Sprint", "Demi-fond", "Lancers"];
-      if (messages.length < 5) return ["Balance classique", "Balance impédancemètre"];
-      if (messages.length < 7) return ["Perdre du gras", "Prendre de la masse"];
-      return [];
-    } else if (viewState === VIEW_STATES.CHECKIN) {
-      if (messages.length < 3) return ["Poids stable", "J'ai perdu 1kg", "J'ai pris 1kg"];
-      if (messages.length < 5) return ["Super énergie !", "Un peu fatigué..."];
-      return ["On maintient les objectifs.", "On ajuste les macros."];
-    } else if (viewState === VIEW_STATES.CHAT) {
-      return ["Que manger avant un sprint ?", "Comment optimiser la récupération ?"];
-    }
-    return [];
-  };
-
-  // Unified AI Response Generator via Gemini
-  const simulateAIResponse = async (userText: string, currentView: string, currentStep: number) => {
+  const simulateAIResponse = async (userText: string | null, currentView: string, explicitHistory: any[] = []) => {
     setIsTyping(true);
     
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
@@ -154,130 +209,195 @@ export default function AINutritionHubScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const contextData = await fetchAthleteAIContext(user?.id || '');
 
-      const geminiHistory = messages.map(m => ({
+      let geminiHistory = explicitHistory.length > 0 ? explicitHistory : messages.map(m => ({
         role: m.isUser ? 'user' : 'model',
         parts: [{ text: m.text }]
       }));
-      geminiHistory.push({ role: 'user', parts: [{ text: userText }] });
+
+      if (userText && explicitHistory.length === 0) {
+        geminiHistory.push({ role: 'user', parts: [{ text: userText }] });
+      }
 
       let stateInstruction = "";
-      if (currentView === VIEW_STATES.ONBOARDING) {
-        stateInstruction = `[CONTEXTE: L'athlète effectue son BILAN INITIAL. Pose des questions (une par une) pour découvrir sa discipline, ses objectifs, et ses outils à disposition (balance). Ton but final est de définir ses besoins caloriques et macros, puis d'inclure EXPLICITEMENT les DEUX balises XML suivantes à la fin de ta réponse pour clôturer le bilan : <finish_onboarding></finish_onboarding> et <update_macros>{"calories": XXXX, "proteins": XX, "carbs": XX, "fats": XX}</update_macros>. Ne génère ces balises QUE quand tu as toutes les infos nécessaires.]`;
+      if (!nutritionProfile?.is_bilan_done && currentView === VIEW_STATES.CHAT) {
+        stateInstruction = `[MODE ENQUÊTE - BILAN INITIAL]
+L'athlète effectue son bilan initial. Ton but est de construire son dossier complet.
+POSE LES QUESTIONS SÉQUENTIELLEMENT, JAMAIS EN BLOC (une à la fois) pour simuler un entretien clinique.
+TA TOUTE PREMIÈRE QUESTION DOIT EXPLICITEMENT DEMANDER SON POIDS (le champ de saisie s'adaptera en une molette de précision pour lui).
+TA DEUXIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SA TAILLE (en cm).
+Rubriques à explorer ENSUITE :
+3. Équipement de suivi : Demande-lui s'il possède une balance à disposition, et si oui, s'il s'agit d'une balance classique ou d'un impédancemètre.
+4. Charge Athlétique : Fréquence, type de séances, échéances.
+5. Modèle Alimentaire : Rythme des repas, hydratation, suppléments.
+6. Tolérances Cliniques : Allergies, aversions, sommeil, digestion.
+
+Dès que tu as toutes ces informations, utilise OBLIGATOIREMENT l'outil 'finalize_initial_assessment' pour valider le bilan.
+Tu DOIS impérativement calculer le BMR de l'athlète puis générer dans 'targets_per_activity' les macros exacts pour TOUS les niveaux d'activité, en utilisant obligatoirement les clés anglaises suivantes : sedentary, light, moderate, intense, very_intense.
+Méthode de calcul stricte : 
+1. BMR (Mifflin-St Jeor).
+2. Calories = BMR * facteur (sedentary:1.2, light:1.375, moderate:1.55, intense:1.725, very_intense:1.9).
+3. Protéines = 2.0g/kg de poids corporel.
+4. Lipides = 1.0g/kg de poids corporel.
+5. Glucides = le reste des calories divisé par 4.
+Dans le champ 'baseline_report' de l'outil, rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion). Ce rapport finira en PDF pour lui.
+Termine ta réponse textuelle par ce message exact : "Le bilan est terminé. Tes objectifs nutritionnels sont maintenant disponibles dans tes paramètres. Tu pourras y ajuster ton niveau d'activité (sédentaire, intense, etc.) et ta répartition par repas à ta convenance."`;
       } else if (currentView === VIEW_STATES.CHECKIN) {
-        stateInstruction = `[CONTEXTE: L'athlète effectue son CHECK-IN de suivi (toutes les 3 semaines). Il vient d'ajuster son poids sur l'accueil, regarde ses données actuelles. Demande-lui comment il se sent (énergie, perf). Si tu estimes qu'il faut ajuster ses calories ou macros en fonction de son évolution, propose-le et inclus EXPLICITEMENT les DEUX balises XML suivantes à la fin de ta réponse pour valider : <update_macros>{"calories": XXXX, "proteins": XX, "carbs": XX, "fats": XX}</update_macros> et <finish_checkin></finish_checkin>.]`;
+        stateInstruction = `[MODE SUIVI - CHECK-IN]
+L'athlète effectue son check-in régulier. Demande comment il se sent. Si un ajustement est nécessaire, utilise l'outil 'adjust_macros' puis conclus. S'il mentionne une nouvelle intolérance ou préférence, utilise l'outil 'update_memory'.`;
       } else {
-        stateInstruction = `[CONTEXTE: L'athlète discute librement avec toi. Réponds à ses questions sur la nutrition sportive de manière experte mais très concise.]`;
+        stateInstruction = `[MODE SUIVI - CHAT LIBRE]
+Dossier de l'athlète (ai_athlete_memory) :
+- Bilan initial : ${athleteMemory?.baseline_report || 'Aucun'}
+- Préférences : ${JSON.stringify(athleteMemory?.preferences || {})}
+- État clinique : ${athleteMemory?.clinical_state || 'Aucun'}
+
+Si une nouvelle information clinique ou préférence apparaît, utilise l'outil 'update_memory'.
+S'il est pertinent d'ajuster ses macros, utilise l'outil 'adjust_macros'.
+Réponds de manière concise, experte et motivante.`;
       }
 
-      const systemPrompt = `Tu es Bioflow, un coach de nutrition sportive de niveau olympique intégré dans l'application BioAthlete, spécialisé en physiologie et en planification nutritionnelle (méthode Bompa/Issurin). Tu parles directement à l'athlète. Tu n'es PAS une IA généraliste — tu es un expert humain virtuel. Ne dis JAMAIS "En tant qu'intelligence artificielle" ou similaire. Assume ton rôle de coach.
+      const systemPrompt = `Tu es Bioflow, un coach de nutrition sportive olympique intégré dans BioAthlete. Tu parles directement à l'athlète (tutoiement).
+Ne dis JAMAIS "En tant qu'IA".
+[Contexte Temporel] : Nous sommes le ${new Date().toLocaleString('fr-FR')}
 
-Données réelles de l'athlète en base :
-- Poids : ${contextData?.profile?.weightkg || 'Non renseigné'} kg | Taille : ${contextData?.profile?.heightcm || 'Non renseigné'} cm
-- Niveau d'activité : ${contextData?.nutrition?.activity_level || 'Modéré'}
-- Objectifs caloriques : ${contextData?.nutrition?.target_calories || 'Non défini'} kcal/j
-- Macros cibles : P=${contextData?.nutrition?.target_proteins || '?'}g / G=${contextData?.nutrition?.target_carbs || '?'}g / L=${contextData?.nutrition?.target_fats || '?'}g
-- Répartition des repas : ${JSON.stringify(contextData?.nutrition?.meal_distribution || {})} (Personnalisé: ${contextData?.nutrition?.is_custom_distribution ? 'OUI' : 'NON'})
-- Historique repas (3 derniers jours) : ${JSON.stringify(contextData?.nutritionLogs || [])}
-- Entraînements (±10 jours) : ${JSON.stringify(contextData?.workouts || [])}
-- Dernier bilan de forme : ${contextData?.todayCheckin ? JSON.stringify(contextData.todayCheckin) : 'Aucun bilan récent'}${contextData?.hasPainToday ? '\n⚠️ DOULEUR SIGNALÉE : Adapte ton discours pour proposer de la récupération active, du repos ou des soins. Ne propose PAS d\'exercices intenses.' : ''}
-- Mémoire : ${contextData?.memory || 'Rien à signaler'}
+Données réelles :
+- Poids : ${contextData?.profile?.weightkg || '?'} kg | Taille : ${contextData?.profile?.heightcm || '?'} cm
+- Objectifs actuels : ${contextData?.nutrition?.target_calories || '?'} kcal (P:${contextData?.nutrition?.target_proteins} G:${contextData?.nutrition?.target_carbs} L:${contextData?.nutrition?.target_fats})
+- Repas : ${JSON.stringify(contextData?.nutrition?.meal_distribution || {})}
+- Checkin aujourd'hui : ${contextData?.todayCheckin ? 'Oui' : 'Non'}
+${contextData?.hasPainToday ? '⚠️ DOULEUR SIGNALÉE : Adapte ton discours.' : ''}
 
-${stateInstruction}
+${stateInstruction}`;
 
-RÈGLES IMPÉRATIVES:
-1. Sois concis et structuré — bullet points et émojis pour la lisibilité mobile.
-2. Utilise SES vraies données chiffrées. Ne génère jamais de valeurs fictives.
-3. Sois direct, motivant, empathique — comme un vrai coach.
-4. En mode CHAT libre, termine par 2-3 suggestions cliquables via : <quick_replies>["Suggestion 1", "Suggestion 2"]</quick_replies>
-5. Si tu apprends une info importante, sauvegarde via <update_memory>Texte</update_memory>.
-6. RÈGLE STRICTE SUR LA PERSONNALISATION : Si 'Personnalisé' est 'OUI' (l'athlète a défini manuellement sa répartition ou son activité), TU N'AS PAS LE DROIT de générer <update_macros> pour les changer sans lui demander explicitement son accord avant.`;
+      const callGemini = async (history: any[]) => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: history,
+            tools: tools,
+            systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+            safetySettings: [
+              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+            ]
+          }),
+        });
+        const d = await response.json();
+        if (d.error) throw new Error(d.error.message);
+        return d;
+      };
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: geminiHistory,
-          systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.7, maxOutputTokens: 800 }
-        }),
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      
-      let generatedResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Désolé, je n'ai pas pu formuler de réponse.";
+      let data = await callGemini(geminiHistory);
+      let parts = data.candidates?.[0]?.content?.parts || [];
+      let functionCallPart = parts.find((p: any) => p.functionCall);
+      let initialTextPart = parts.find((p: any) => p.text);
+      let initialText = initialTextPart?.text || "";
+      let textPart = initialTextPart;
       let shouldReturnToHub = false;
 
-      // Parse <quick_replies> XML tag (chat mode only)
+      // Handle Function Calling loop
+      if (functionCallPart) {
+        const fc = functionCallPart.functionCall;
+        let functionResponseData: any = {};
+
+        if (fc.name === 'finalize_initial_assessment') {
+          if (user) {
+            let targets = {};
+            try { targets = typeof fc.args.targets_per_activity === 'string' ? JSON.parse(fc.args.targets_per_activity) : (fc.args.targets_per_activity || {}); } catch(e) {}
+            
+            let prefs = {};
+            try { prefs = typeof fc.args.preferences === 'string' ? JSON.parse(fc.args.preferences) : (fc.args.preferences || {}); } catch(e) {}
+
+            const baseLevel = targets["moderate"] || targets["Modéré"] || Object.values(targets)[0] || { calories: 2500, proteins: 150, carbs: 250, fats: 80 };
+            
+            await supabase.from('ai_athlete_memory').upsert({
+              athlete_id: user.id,
+              baseline_report: fc.args.baseline_report,
+              preferences: prefs,
+              clinical_state: fc.args.clinical_state || '',
+              macro_targets: targets
+            }, { onConflict: 'athlete_id' });
+            
+            await supabase.from('nutrition_profiles').upsert({
+              athlete_id: user.id,
+              target_calories: baseLevel.calories,
+              target_proteins: baseLevel.proteins,
+              target_carbs: baseLevel.carbs,
+              target_fats: baseLevel.fats,
+              activity_level: "Modéré",
+              is_bilan_done: true
+            }, { onConflict: 'athlete_id' });
+          }
+          functionResponseData = { status: "success", message: "Bilan initial généré et sauvegardé." };
+          shouldReturnToHub = true;
+        } else if (fc.name === 'update_memory') {
+          let currentMem = athleteMemory || {};
+          let updates: any = {};
+          if (fc.args.category === 'preferences') {
+             updates.preferences = { ...(currentMem.preferences || {}), note: fc.args.new_information };
+          } else {
+             updates.clinical_state = currentMem.clinical_state ? currentMem.clinical_state + "\n" + fc.args.new_information : fc.args.new_information;
+          }
+          if (user) {
+             await supabase.from('ai_athlete_memory').update(updates).eq('athlete_id', user.id);
+          }
+          functionResponseData = { status: "success", message: "Mémoire mise à jour." };
+        } else if (fc.name === 'adjust_macros') {
+          if (user) {
+             await supabase.from('nutrition_profiles').update({
+               target_calories: fc.args.new_kcal,
+               target_proteins: fc.args.new_proteins,
+               target_carbs: fc.args.new_carbs,
+               target_fats: fc.args.new_fats
+             }).eq('athlete_id', user.id);
+             
+             await supabase.from('ai_athlete_memory').update({
+               macro_targets: { calories: fc.args.new_kcal, proteins: fc.args.new_proteins, carbs: fc.args.new_carbs, fats: fc.args.new_fats }
+             }).eq('athlete_id', user.id);
+          }
+          functionResponseData = { status: "success", message: "Macros ajustées avec succès." };
+        }
+
+        geminiHistory.push({ role: 'model', parts: [{ functionCall: fc }] });
+        geminiHistory.push({ role: 'function', parts: [{ functionResponse: { name: fc.name, response: functionResponseData } }] });
+        
+        data = await callGemini(geminiHistory);
+        parts = data.candidates?.[0]?.content?.parts || [];
+        let secondTextPart = parts.find((p: any) => p.text);
+        let secondText = secondTextPart?.text || "";
+        
+        textPart = { text: initialText + (initialText && secondText ? "\n\n" : "") + secondText };
+      }
+
+      let generatedResponse = textPart?.text || "";
+      
+      if (!generatedResponse && data.candidates?.[0]?.finishReason) {
+        generatedResponse = `(Erreur API: Raison d'arrêt = ${data.candidates[0].finishReason})`;
+      } else if (!generatedResponse) {
+        generatedResponse = "Désolé, je n'ai pas pu formuler de réponse. La structure renvoyée par le serveur était vide.";
+      }
+
+      // Retrait silencieux des éventuelles balises quick_replies résiduelles dans le modèle
       if (generatedResponse.includes('<quick_replies>')) {
-        const qrMatch = generatedResponse.match(/<quick_replies>(\[.*?\])<\/quick_replies>/s);
-        if (qrMatch) {
-          try { setQuickReplies(JSON.parse(qrMatch[1])); } catch(e) { setQuickReplies([]); }
-        }
         generatedResponse = generatedResponse.replace(/<quick_replies>[\s\S]*?<\/quick_replies>/, '').trim();
-      } else {
-        setQuickReplies([]);
       }
 
-      // Parse and execute XML Tags
-      if (generatedResponse.includes('<update_macros>')) {
-        const match = generatedResponse.match(/<update_macros>([\s\S]*?)<\/update_macros>/);
-        if (match && user) {
-          try {
-            const macros = JSON.parse(match[1]);
-            await supabase.from('nutrition_profiles').update({
-              target_calories: macros.calories,
-              target_proteins: macros.proteins,
-              target_carbs: macros.carbs,
-              target_fats: macros.fats,
-            }).eq('athlete_id', user.id);
-          } catch(e) { console.error("Error parsing macros XML"); }
-        }
-        generatedResponse = generatedResponse.replace(/<update_macros>[\s\S]*?<\/update_macros>/, '').trim();
+      if (generatedResponse) {
+        setMessages(prev => [...prev, { id: Date.now().toString(), text: generatedResponse, isUser: false }]);
       }
-
-      if (generatedResponse.includes('<update_memory>')) {
-        const match = generatedResponse.match(/<update_memory>([\s\S]*?)<\/update_memory>/);
-        if (match && user) {
-          await supabase.from('athlete_ai_memory').insert({ athlete_id: user.id, memory_text: match[1].trim() });
-        }
-        generatedResponse = generatedResponse.replace(/<update_memory>[\s\S]*?<\/update_memory>/, '').trim();
-      }
-
-      if (generatedResponse.includes('<finish_onboarding>')) {
-        if (user) {
-          await supabase.from('nutrition_profiles').update({ is_bilan_done: true }).eq('athlete_id', user.id);
-        }
-        generatedResponse = generatedResponse.replace(/<finish_onboarding>[\s\S]*?<\/finish_onboarding>/, '').replace('<finish_onboarding/>', '').trim();
-        shouldReturnToHub = true;
-      }
-
-      if (generatedResponse.includes('<finish_checkin>')) {
-        if (user) {
-          const nextCheckin = new Date();
-          nextCheckin.setDate(nextCheckin.getDate() + 21);
-          await supabase.from('nutrition_profiles').update({
-            last_checkin_date: new Date().toISOString(),
-            next_checkin_date: nextCheckin.toISOString(),
-          }).eq('athlete_id', user.id);
-        }
-        generatedResponse = generatedResponse.replace(/<finish_checkin>[\s\S]*?<\/finish_checkin>/, '').replace('<finish_checkin/>', '').trim();
-        shouldReturnToHub = true;
-      }
-
-      setMessages(prev => [...prev, { id: Date.now().toString(), text: generatedResponse, isUser: false }]);
       
       if (shouldReturnToHub) {
-        setTimeout(() => fetchProfile(), 3000);
+        setNutritionProfile((prev: any) => ({ ...prev, is_bilan_done: true }));
+        AsyncStorage.removeItem('@bioathlete_assessment_chat').catch(() => {});
       }
 
     } catch (error: any) {
-      // Human-friendly error injected as a chat bubble — no Alert
-      setMessages(prev => [...prev, { 
-        id: Date.now().toString(), 
-        text: "Oups, je réfléchis un peu trop lentement… 🧠 Donne-moi une seconde pour reprendre mon souffle. Réessaie dans un instant !", 
-        isUser: false 
-      }]);
+      console.error(error);
+      setMessages(prev => [...prev, { id: Date.now().toString(), text: "Oups, je réfléchis un peu trop lentement… Réessaie !", isUser: false }]);
     } finally {
       setIsTyping(false);
     }
@@ -288,16 +408,29 @@ RÈGLES IMPÉRATIVES:
     const newMsg: Message = { id: Date.now().toString(), text: text.trim(), isUser: true };
     setMessages(prev => [...prev, newMsg]);
     setInputText('');
-    simulateAIResponse(text.trim(), viewState, subStep);
+    simulateAIResponse(text.trim(), viewState);
+  };
+
+  const editLastMessage = () => {
+    const lastUserIndex = [...messages].reverse().findIndex(m => m.isUser);
+    if (lastUserIndex === -1) return;
+    
+    const actualIndex = messages.length - 1 - lastUserIndex;
+    const msgToEdit = messages[actualIndex];
+    
+    setInputText(msgToEdit.text);
+    setMessages(prev => prev.slice(0, actualIndex));
   };
 
   useEffect(() => {
-    if (viewState === VIEW_STATES.ONBOARDING || viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN) {
+    if (viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN) {
       setTimeout(() => { flatListRef.current?.scrollToEnd({ animated: true }); }, 100);
     }
   }, [messages, isTyping, viewState]);
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item, index }: { item: Message, index: number }) => {
+    const isLastUserMessage = item.isUser && index === messages.length - 1 - [...messages].reverse().findIndex(m => m.isUser);
+    
     return (
       <Animated.View entering={FadeInUp.delay(50).springify()} style={[styles.messageWrapper, item.isUser ? styles.messageWrapperUser : styles.messageWrapperAI]}>
         {!item.isUser && (
@@ -308,46 +441,18 @@ RÈGLES IMPÉRATIVES:
         <View style={[styles.messageBubble, item.isUser ? [styles.messageBubbleUser, { backgroundColor: theme.primary }] : [styles.messageBubbleAI, { backgroundColor: theme.surfaceSecondary }]]}>
           <Text style={[styles.messageText, item.isUser ? styles.messageTextUser : [styles.messageTextAI, { color: theme.text }]]}>{item.text}</Text>
         </View>
+        {isLastUserMessage && (
+          <TouchableOpacity onPress={editLastMessage} style={{ marginLeft: 8, alignSelf: 'flex-end', marginBottom: 4 }}>
+            <MaterialIcons name="edit" size={16} color={theme.icon} />
+          </TouchableOpacity>
+        )}
       </Animated.View>
     );
   };
 
-  const shimmerPosition = useSharedValue(-400);
-  useEffect(() => {
-    shimmerPosition.value = withRepeat(
-      withTiming(400, { duration: 2500, easing: Easing.linear }),
-      -1,
-      false
-    );
-  }, []);
-
-  const shimmerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: shimmerPosition.value }],
-  }));
-
-  const renderLandingPage = () => (
-    <View style={styles.landingContainer}>
-      <Animated.View entering={FadeInDown.delay(100).springify()} style={{ position: 'absolute', top: '15%', alignItems: 'center', width: '100%' }}>
-        <CDLogo size={180} />
-      </Animated.View>
-
-      <Animated.View entering={FadeInUp.delay(300).springify()} style={{ width: '100%', alignItems: 'center', marginTop: 100 }}>
-        <TouchableOpacity onPress={startBilan} activeOpacity={0.8} style={{ overflow: 'hidden', borderRadius: 40, elevation: 15, shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.6, shadowRadius: 20, width: '95%' }}>
-          <LinearGradient colors={['#4F46E5', '#7C3AED']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ paddingVertical: 22, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold', textAlign: 'center' }}>Faire mon premier bilan nutritionnel</Text>
-            
-            <Animated.View style={[StyleSheet.absoluteFill, { width: 120, opacity: 0.5 }, shimmerStyle]}>
-              <LinearGradient colors={['transparent', 'rgba(255,255,255,0.9)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1, transform: [{ skewX: '-30deg' }] }} />
-            </Animated.View>
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
-  );
 
   const renderHub = () => {
     if (!nutritionProfile) return null;
-    
     const isCheckinDue = nutritionProfile.next_checkin_date && new Date(nutritionProfile.next_checkin_date) < new Date();
 
     return (
@@ -376,19 +481,6 @@ RÈGLES IMPÉRATIVES:
               <View style={styles.goalCol}>
                 <Text style={[styles.goalLabel, { color: theme.icon }]}>Prot / Glu / Lip</Text>
                 <Text style={[styles.goalValue, { color: theme.text }]}>{nutritionProfile.target_proteins}g / {nutritionProfile.target_carbs}g / {nutritionProfile.target_fats}g</Text>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.goalRow}>
-              <View style={styles.goalCol}>
-                <Text style={[styles.goalLabel, { color: theme.icon }]}>Objectif 3 Semaines</Text>
-                <Text style={[styles.goalValue, { color: theme.text }]}>{nutritionProfile.current_weight_goal ? `${nutritionProfile.current_weight_goal} kg` : 'En cours'}</Text>
-              </View>
-              <View style={styles.goalCol}>
-                <Text style={[styles.goalLabel, { color: theme.icon }]}>Objectif Ultime</Text>
-                <Text style={[styles.goalValue, { color: theme.text }]}>{nutritionProfile.ultimate_weight_goal ? `${nutritionProfile.ultimate_weight_goal} kg` : 'À définir'}</Text>
               </View>
             </View>
           </Card>
@@ -420,186 +512,79 @@ RÈGLES IMPÉRATIVES:
     );
   };
 
-  const renderChatInterface = () => (
-    <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={renderMessage}
-        contentContainerStyle={styles.chatContainer}
-        showsVerticalScrollIndicator={false}
-        ListFooterComponent={() => 
-          isTyping ? (
-            <View style={styles.typingIndicator}>
-              <View style={[styles.aiAvatar, { backgroundColor: '#4F46E5', marginRight: 8 }]}><MaterialIcons name="auto-awesome" size={16} color="#FFF" /></View>
-              <View style={[styles.messageBubble, styles.messageBubbleAI, { backgroundColor: theme.surfaceSecondary, paddingVertical: 12, paddingHorizontal: 16 }]}><ActivityIndicator size="small" color={theme.primary} /></View>
-            </View>
-          ) : null
-        }
-      />
-      <View style={[styles.inputArea, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
-        {getSuggestionsForStep().length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.suggestionsScroll} contentContainerStyle={styles.suggestionsContainer}>
-            {getSuggestionsForStep().map((suggestion, index) => (
-              <TouchableOpacity key={index} style={[styles.suggestionChip, { borderColor: theme.border }]} onPress={() => sendMessage(suggestion)}>
-                <Text style={[styles.suggestionText, { color: theme.primary }]}>{suggestion}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-        <QuickReplies 
-          suggestions={viewState === VIEW_STATES.CHAT ? quickReplies : []}
-          onSelect={(text) => { setQuickReplies([]); sendMessage(text); }}
-        />
-        <View style={styles.inputRow}>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}
-            placeholder="Demande un conseil nutrition..."
-            placeholderTextColor={theme.icon}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline maxLength={300}
-          />
-          <TouchableOpacity 
-            style={[styles.sendBtn, { backgroundColor: inputText.trim() ? theme.primary : theme.surfaceSecondary }]}
-            onPress={() => sendMessage(inputText)} disabled={!inputText.trim() || isTyping}
-          >
-            <MaterialIcons name="send" size={20} color={inputText.trim() ? '#FFF' : theme.icon} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
-  );
-
-  const handleOnboardingNext = async (value: string | null = null) => {
-    let newData = { ...onboardingData };
-    if (value) {
-      if (subStep === ONBOARDING_STEPS.DISCIPLINE) newData.discipline = value;
-      if (subStep === ONBOARDING_STEPS.TOOLS) newData.tools = value;
-      if (subStep === ONBOARDING_STEPS.GOAL) newData.goal = value;
-      setOnboardingData(newData);
-    }
-
-    if (subStep < ONBOARDING_STEPS.GOAL) {
-      setSubStep(subStep + 1);
-      setIsOtherMode(false);
-      setOtherText('');
-    } else {
-      setIsTyping(true);
-      setViewState(VIEW_STATES.LOADING); // Show loading spinner
-      
-      const payloadString = `Discipline: ${newData.discipline}, Outils/Matériel: ${newData.tools}, Poids: ${newData.weight}kg, Taille: ${newData.height}cm, Objectif principal: ${newData.goal}`;
-      const prompt = `Voici les réponses du questionnaire du nouvel athlète : ${payloadString}. Calcule ses besoins caloriques et ses macros, puis inclus EXPLICITEMENT les balises XML <update_macros> et <finish_onboarding> à la fin de ta réponse pour valider. Tu n'as pas besoin de lui poser de question, son bilan est terminé.`;
-      
-      await simulateAIResponse(prompt, VIEW_STATES.ONBOARDING, subStep);
-    }
-  };
-
-  const renderOnboarding = () => {
-    const titles = ["Ta Discipline", "Ton Équipement", "Tes Mensurations", "Ton Objectif"];
-    const stepTitle = titles[subStep];
-
-    const getOptions = () => {
-      if (subStep === ONBOARDING_STEPS.DISCIPLINE) return [
-        { label: "🏃 Sprint", value: "Sprint" }, { label: "🏃‍♂️ Endurance", value: "Endurance" },
-        { label: "👟 Sauts", value: "Sauts" }, { label: "💪 Lancers", value: "Lancers" }
-      ];
-      if (subStep === ONBOARDING_STEPS.TOOLS) return [
-        { label: "⚖️ Balance classique", value: "Balance classique" }, { label: "⚡ Impédancemètre", value: "Balance impédancemètre" },
-        { label: "📏 Mètre ruban", value: "Mètre ruban" }, { label: "🪞 Juste un miroir !", value: "Aucun équipement, juste le miroir" }
-      ];
-      if (subStep === ONBOARDING_STEPS.GOAL) return [
-        { label: "🔥 Perdre du gras", value: "Perte de gras" }, { label: "🥩 Prise de masse", value: "Prise de muscle" },
-        { label: "⚡ Maintenir et performer", value: "Maintien et performance" }
-      ];
-      return [];
-    };
+  const renderChatInterface = () => {
+    // Le premier message invisible de l'utilisateur n'est pas dans l'état local `messages`, donc la réponse de l'IA est le message #1
+    const isWaitingForWeight = viewState === VIEW_STATES.CHAT && !nutritionProfile?.is_bilan_done && messages.length === 1;
+    const isWaitingForHeight = viewState === VIEW_STATES.CHAT && !nutritionProfile?.is_bilan_done && messages.length === 3;
 
     return (
-      <View style={styles.onboardingContainer}>
-        <View style={styles.progressBarContainer}>
-          <Text style={[styles.progressText, { color: theme.icon }]}>[=== Couloir {subStep + 1}/4 : {stepTitle} ===]</Text>
-          <View style={[styles.progressBarTrack, { backgroundColor: theme.surfaceSecondary }]}>
-            <Animated.View style={[styles.progressBarFill, { backgroundColor: theme.primary, width: `${((subStep + 1) / 4) * 100}%` }]} />
-          </View>
-        </View>
-
-        <Text style={[styles.questionTitle, { color: theme.text }]}>Sélectionne {subStep === ONBOARDING_STEPS.METRICS ? 'tes infos' : 'ton choix'} :</Text>
-
-        <ScrollView contentContainerStyle={styles.optionsGrid}>
-          {subStep !== ONBOARDING_STEPS.METRICS ? (
-            <>
-              {!isOtherMode ? (
-                <>
-                  {getOptions().map((opt, i) => (
-                    <Animated.View key={i} entering={FadeInUp.delay(i * 50).springify()}>
-                      <TouchableOpacity style={[styles.optionCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => handleOnboardingNext(opt.value)}>
-                        <Text style={[styles.optionText, { color: theme.text }]}>{opt.label}</Text>
-                      </TouchableOpacity>
-                    </Animated.View>
-                  ))}
-                  <Animated.View entering={FadeInUp.delay(getOptions().length * 50).springify()}>
-                    <TouchableOpacity style={[styles.optionCard, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]} onPress={() => setIsOtherMode(true)}>
-                      <Text style={[styles.optionText, { color: theme.text }]}>⌨️ Autre / Spécifier...</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </>
-              ) : (
-                <Animated.View entering={FadeInUp.springify()} style={styles.otherInputContainer}>
-                  <TextInput
-                    style={[styles.largeInput, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}
-                    placeholder="Décris ton cas spécifique ici..."
-                    placeholderTextColor={theme.icon}
-                    value={otherText}
-                    onChangeText={setOtherText}
-                    multiline
-                    autoFocus
-                  />
-                  <CustomButton title="Valider" onPress={() => handleOnboardingNext(otherText)} disabled={!otherText.trim()} style={{ marginTop: Layout.spacing.lg }} />
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={[styles.chatContainer, (isWaitingForWeight || isWaitingForHeight) && { paddingBottom: 350 }]}
+          showsVerticalScrollIndicator={false}
+          ListFooterComponent={() => 
+            <View>
+              {isTyping && (
+                <View style={styles.messageWrapperAI}>
+                  <View style={[styles.aiAvatar, { backgroundColor: '#4F46E5' }]}>
+                    <MaterialIcons name="auto-awesome" size={16} color="#FFF" />
+                  </View>
+                  <View style={[styles.messageBubbleAI, { backgroundColor: theme.surfaceSecondary }]}>
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  </View>
+                </View>
+              )}
+              {nutritionProfile?.is_bilan_done && viewState === VIEW_STATES.CHAT && (
+                <Animated.View entering={FadeInUp.delay(500).springify()} style={{ alignItems: 'center', marginVertical: 30 }}>
+                  <TouchableOpacity 
+                    onPress={() => user && generateAndShareReport(user.id)}
+                    style={{ backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 30, flexDirection: 'row', alignItems: 'center', shadowColor: theme.primary, shadowOffset: {width:0, height:4}, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }}
+                  >
+                    <FontAwesome5 name="file-pdf" size={20} color="#FFF" style={{ marginRight: 10 }} />
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>Télécharger mon rapport (PDF)</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: theme.icon, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 40 }}>
+                    Retrouvez également ce rapport à tout moment dans Paramètres Nutrition.
+                  </Text>
                 </Animated.View>
               )}
-            </>
-          ) : (
-            <Animated.View entering={FadeInUp.springify()} style={styles.metricsContainer}>
-              <View style={styles.metricInputWrapper}>
-                <Text style={[styles.metricLabel, { color: theme.text }]}>Poids actuel (kg)</Text>
-                <TextInput
-                  style={[styles.metricInput, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}
-                  placeholder="ex: 75.5"
-                  placeholderTextColor={theme.icon}
-                  keyboardType="numeric"
-                  value={onboardingData.weight}
-                  onChangeText={(val) => setOnboardingData({ ...onboardingData, weight: val })}
-                />
-              </View>
-              <View style={styles.metricInputWrapper}>
-                <Text style={[styles.metricLabel, { color: theme.text }]}>Taille (cm)</Text>
-                <TextInput
-                  style={[styles.metricInput, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}
-                  placeholder="ex: 180"
-                  placeholderTextColor={theme.icon}
-                  keyboardType="numeric"
-                  value={onboardingData.height}
-                  onChangeText={(val) => setOnboardingData({ ...onboardingData, height: val })}
-                />
-              </View>
-              <CustomButton 
-                title="Continuer" 
-                onPress={() => handleOnboardingNext()} 
-                disabled={!onboardingData.weight || !onboardingData.height} 
-                style={{ marginTop: Layout.spacing.xl }} 
+            </View>
+          }
+        />
+        
+        {isWaitingForWeight ? (
+          <View style={{ position: 'absolute', bottom: 0, width: '100%', zIndex: 10 }}>
+            <WeightPickerWheel onValidate={(weight) => sendMessage(`Mon poids actuel est de ${weight} kg.`)} />
+          </View>
+        ) : isWaitingForHeight ? (
+          <View style={{ position: 'absolute', bottom: 0, width: '100%', zIndex: 10 }}>
+            <HeightPickerWheel gender={athleteGender} onValidate={(height) => sendMessage(`Ma taille est de ${height} cm.`)} />
+          </View>
+        ) : (
+          <View style={[styles.inputArea, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.surfaceSecondary, color: theme.text }]}
+                placeholder="Écrivez votre réponse..."
+                placeholderTextColor={theme.icon}
+                value={inputText}
+                onChangeText={setInputText}
+                multiline maxLength={1000}
               />
-            </Animated.View>
-          )}
-        </ScrollView>
-
-        {!isOtherMode && subStep !== ONBOARDING_STEPS.METRICS && (
-          <TouchableOpacity style={styles.persistentOtherBtn} onPress={() => setIsOtherMode(true)}>
-            <Text style={[styles.persistentOtherText, { color: theme.primary }]}>Écrire manuellement</Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.sendBtn, { backgroundColor: inputText.trim() ? theme.primary : theme.surfaceSecondary }]}
+                onPress={() => sendMessage(inputText)} disabled={!inputText.trim() || isTyping}
+              >
+                <MaterialIcons name="send" size={20} color={inputText.trim() ? '#FFF' : theme.icon} />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
     );
   };
 
@@ -609,17 +594,14 @@ RÈGLES IMPÉRATIVES:
         leftContent={
           <TouchableOpacity 
             onPress={() => {
-              if (viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN || viewState === VIEW_STATES.ONBOARDING) {
-                // If checking in or chatting, go back to HUB (if bilan is done) or back to landing
+              if (viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN) {
                 if (nutritionProfile && nutritionProfile.is_bilan_done) {
                   setViewState(VIEW_STATES.HUB);
                 } else {
-                  if (router.canGoBack()) router.back();
-                  else router.replace('/(tabs)/nutrition');
+                  router.replace('/(tabs)/nutrition');
                 }
               } else {
-                if (router.canGoBack()) router.back();
-                else router.replace('/(tabs)/nutrition');
+                router.replace('/(tabs)/nutrition');
               }
             }} 
             style={styles.closeBtn}
@@ -633,9 +615,7 @@ RÈGLES IMPÉRATIVES:
       {viewState === VIEW_STATES.LOADING && (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.primary} /><Text style={{ marginTop: 16, color: theme.text, fontSize: 16, fontWeight: 'bold' }}>Analyse par l'IA en cours...</Text></View>
       )}
-      {viewState === VIEW_STATES.LANDING && renderLandingPage()}
       {viewState === VIEW_STATES.HUB && renderHub()}
-      {viewState === VIEW_STATES.ONBOARDING && renderOnboarding()}
       {(viewState === VIEW_STATES.CHAT || viewState === VIEW_STATES.CHECKIN) && renderChatInterface()}
       
     </View>
@@ -685,22 +665,5 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: 'rgba(150,150,150,0.2)', marginVertical: Layout.spacing.md },
   actionContainer: { width: '100%' },
   notificationBadge: { position: 'absolute', top: -8, right: -8, backgroundColor: '#EF4444', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#1A1D24' },
-  notificationBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  onboardingContainer: { flex: 1, padding: Layout.spacing.lg },
-  progressBarContainer: { marginBottom: Layout.spacing.xl, alignItems: 'center' },
-  progressText: { fontSize: Typography.sizes.sm, fontWeight: Typography.weights.bold, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
-  progressBarTrack: { width: '100%', height: 8, borderRadius: 4, overflow: 'hidden' },
-  progressBarFill: { height: '100%', borderRadius: 4 },
-  questionTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, marginBottom: Layout.spacing.lg, textAlign: 'center' },
-  optionsGrid: { gap: Layout.spacing.md, paddingBottom: 40 },
-  optionCard: { padding: Layout.spacing.lg, borderRadius: Layout.borderRadius.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  optionText: { fontSize: Typography.sizes.lg, fontWeight: Typography.weights.medium },
-  otherInputContainer: { paddingVertical: Layout.spacing.md },
-  largeInput: { minHeight: 100, borderRadius: Layout.borderRadius.md, padding: Layout.spacing.md, fontSize: Typography.sizes.md, textAlignVertical: 'top' },
-  persistentOtherBtn: { alignItems: 'center', padding: Layout.spacing.md, marginTop: 'auto', marginBottom: Platform.OS === 'ios' ? 20 : 0 },
-  persistentOtherText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold },
-  metricsContainer: { gap: Layout.spacing.lg, marginTop: Layout.spacing.md },
-  metricInputWrapper: { gap: 8 },
-  metricLabel: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.medium, marginLeft: 4 },
-  metricInput: { height: 50, borderRadius: Layout.borderRadius.md, paddingHorizontal: Layout.spacing.md, fontSize: Typography.sizes.lg },
+  notificationBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' }
 });

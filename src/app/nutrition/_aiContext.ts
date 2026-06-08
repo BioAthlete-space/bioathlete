@@ -20,11 +20,10 @@ export const fetchAthleteAIContext = async (userId: string) => {
 
     // 3. AI Memory
     const { data: memoryData } = await supabase
-      .from('athlete_ai_memory')
-      .select('memory_text')
+      .from('ai_athlete_memory')
+      .select('*')
       .eq('athlete_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(5);
+      .maybeSingle();
 
     // 4. Recent Nutrition Logs (last 3 days)
     const threeDaysAgo = new Date();
@@ -32,9 +31,9 @@ export const fetchAthleteAIContext = async (userId: string) => {
     const { data: logs } = await supabase
       .from('nutrition_logs')
       .select('*')
-      .eq('athlete_id', userId)
-      .gte('date', threeDaysAgo.toISOString().split('T')[0])
-      .order('date', { ascending: false })
+      .eq('user_id', userId)
+      .gte('log_date', threeDaysAgo.toISOString().split('T')[0])
+      .order('log_date', { ascending: false })
       .limit(20);
 
     // 5. Today's Check-in (CRITICAL for IA context)
@@ -81,7 +80,7 @@ export const fetchAthleteAIContext = async (userId: string) => {
     return {
       profile,
       nutrition,
-      memory: memoryData?.map(m => m.memory_text).join('\n\n') || null,
+      memory: memoryData || null,
       nutritionLogs: logs || [],
       workouts: workouts || [],
       todayCheckin: todayCheckin || null,

@@ -15,6 +15,7 @@ import { CircularProgress } from '../../components/CircularProgress';
 import { useRouter, Link, useFocusEffect } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useCallback } from 'react';
 
 const getRelativeDateLabel = (dateStr: string) => {
@@ -52,6 +53,7 @@ export default function NutritionScreen() {
   const [dailyGoals, setDailyGoals] = useState({ calories: 2500, proteins: 120, carbs: 300, fats: 80 });
   const [checkinAlert, setCheckinAlert] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isBilanDone, setIsBilanDone] = useState(true);
 
   // Nouvel état pour les données corporelles et les repas
   const [bodyStats, setBodyStats] = useState<{ weightkg?: number; body_fat_percentage?: number; muscle_mass_percentage?: number }>({});
@@ -100,6 +102,9 @@ export default function NutritionScreen() {
           } else {
             setCheckinAlert(false);
           }
+          setIsBilanDone(profile.is_bilan_done);
+        } else {
+          setIsBilanDone(false);
         }
 
         const { data, error } = await supabase
@@ -203,47 +208,74 @@ export default function NutritionScreen() {
 
           <Animated.View entering={FadeInUp.delay(50).springify()}>
             {/* Carte Paramètres / Gestion */}
-            <Link href="/nutrition/settings" asChild>
-              <TouchableOpacity 
-                activeOpacity={0.8} 
-                style={{ marginBottom: Layout.spacing.lg }}
-              >
-              <LinearGradient
-                colors={['#4F46E5', '#7C3AED']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{
-                  borderRadius: Layout.borderRadius.lg,
-                  padding: Layout.spacing.md,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  shadowColor: '#4F46E5',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 8,
-                  elevation: 6,
-                }}
-              >
-                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 10, borderRadius: 20, marginRight: Layout.spacing.md }}>
-                  <MaterialIcons name="settings" size={24} color="#FFF" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#FFF', fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }}>Gestion & Paramètres</Text>
-                  <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: Typography.sizes.sm, marginTop: 4 }}>Objectifs et répartition des repas</Text>
-                </View>
-                {checkinAlert && (
-                  <View style={{ backgroundColor: theme.danger, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
-                    <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>POINT REQUIS</Text>
+            {isBilanDone ? (
+              <Link href="/nutrition/settings" asChild>
+                <TouchableOpacity 
+                  activeOpacity={0.8} 
+                  style={{ marginBottom: Layout.spacing.lg }}
+                >
+                <LinearGradient
+                  colors={['#4F46E5', '#7C3AED']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    borderRadius: Layout.borderRadius.lg,
+                    padding: Layout.spacing.md,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    shadowColor: '#4F46E5',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 8,
+                    elevation: 6,
+                  }}
+                >
+                  <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 10, borderRadius: 20, marginRight: Layout.spacing.md }}>
+                    <MaterialIcons name="settings" size={24} color="#FFF" />
                   </View>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-            </Link>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#FFF', fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }}>Mon nutritionniste</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: Typography.sizes.sm, marginTop: 4 }}>Objectifs et répartition des repas</Text>
+                  </View>
+                  {checkinAlert && (
+                    <View style={{ backgroundColor: theme.danger, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
+                      <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>POINT REQUIS</Text>
+                    </View>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+              </Link>
+            ) : (
+              <View style={{ marginBottom: Layout.spacing.lg }}>
+                <View
+                  style={{
+                    backgroundColor: theme.surfaceSecondary,
+                    borderRadius: Layout.borderRadius.lg,
+                    padding: Layout.spacing.md,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                >
+                  <View style={{ backgroundColor: theme.border, padding: 10, borderRadius: 20, marginRight: Layout.spacing.md }}>
+                    <MaterialIcons name="lock" size={24} color={theme.icon} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.icon, fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold }}>Mon nutritionniste</Text>
+                    <Text style={{ color: theme.icon, fontSize: Typography.sizes.sm, marginTop: 4 }}>Bilan requis</Text>
+                  </View>
+                </View>
+              </View>
+            )}
           </Animated.View>
 
-          <Animated.View entering={FadeInUp.delay(100).springify()}>
-            {/* Carte Résumé (Cliquable) */}
+          <View style={{ position: 'relative' }}>
+            <View pointerEvents={isBilanDone ? 'auto' : 'none'}>
+              <Animated.View entering={FadeInUp.delay(100).springify()}>
+                {/* Carte Résumé (Cliquable) */}
             <Link href={{ pathname: '/nutrition/summary', params: { date: selectedDateId } }} asChild>
               <TouchableOpacity 
                 activeOpacity={0.8} 
@@ -397,6 +429,33 @@ export default function NutritionScreen() {
             </View>
           </Animated.View>
           )}
+          
+            </View>
+
+            {!isBilanDone && !loading && (
+              <Animated.View entering={FadeInUp.delay(300).springify()} style={[StyleSheet.absoluteFill, { zIndex: 10, borderRadius: Layout.borderRadius.xl, overflow: 'hidden', marginTop: Layout.spacing.lg }]}>
+                <BlurView intensity={Platform.OS === 'ios' ? 10 : 25} tint="light" style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                  <View style={{ backgroundColor: theme.surfaceSecondary, padding: 24, borderRadius: 24, alignItems: 'center', shadowColor: theme.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10, width: '85%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: theme.text, textAlign: 'center', marginBottom: 8 }}>Activation requise</Text>
+                    <Text style={{ fontSize: 14, color: theme.icon, textAlign: 'center', lineHeight: 22, marginBottom: 20 }}>
+                      Vos jauges et objectifs seront débloqués dès que votre bilan nutritionnel intelligent sera terminé.
+                    </Text>
+                    <Link href="/nutrition/chat" asChild>
+                      <TouchableOpacity 
+                        activeOpacity={0.8}
+                        style={{ backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 30, flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center', shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }}
+                      >
+                        <MaterialIcons name="auto-awesome" size={20} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>Faire mon bilan</Text>
+                      </TouchableOpacity>
+                    </Link>
+                  </View>
+                </BlurView>
+              </Animated.View>
+            )}
+
+          </View>
+          
             </View>
           </ScrollView>
         </Animated.View>

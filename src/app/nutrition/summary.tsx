@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions, Alert, Image, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../hooks/useThemeColor';
 import { Layout } from '../../constants/Layout';
@@ -14,20 +14,22 @@ import { supabase } from '../../lib/supabase';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import { CustomButton } from '../../components/CustomButton';
+import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
 
 const { width } = Dimensions.get('window');
 
 const MEAL_FILTERS = ['Journée complète', 'Petit-déjeuner', 'Déjeuner', 'Collation', 'Dîner'];
 
 // Composant local pour une barre de progression droite avec Label et Valeurs intégrées
-const GoalBar = ({ label, current, max, color, unit = 'g', isThin = false }: any) => {
+const GoalBar = ({ label, current, max, color, unit = 'g', isThin = false, hideMax = false }: any) => {
   const theme = useTheme();
   return (
     <View style={styles.goalBarContainer}>
       <View style={styles.goalBarHeader}>
         <Text style={[styles.goalLabel, { color: theme.text }]}>{label}</Text>
         <Text style={[styles.goalValue, { color: theme.text }]}>
-          <AnimatedNumber value={current} /> {unit} / {max} {unit}
+          <AnimatedNumber value={current} /> {unit} {hideMax ? '' : `/ ${max} ${unit}`}
         </Text>
       </View>
       <AnimatedProgressBar 
@@ -52,6 +54,8 @@ export default function NutritionSummaryScreen() {
 
   const [selectedFilter, setSelectedFilter] = useState(initialFilter);
   const [loading, setLoading] = useState(true);
+  const [logId, setLogId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const [dailyGoals, setDailyGoals] = useState({
     calories: 2500,
@@ -82,6 +86,8 @@ export default function NutritionSummaryScreen() {
     'Collation': [],
     'Dîner': [],
   });
+
+  const [mealPhotos, setMealPhotos] = useState<Record<string, string>>({});
 
   useFocusEffect(
     useCallback(() => {
@@ -142,6 +148,10 @@ export default function NutritionSummaryScreen() {
       };
 
       if (logData) {
+        setLogId(logData.id);
+        if (logData.meal_photos) {
+          setMealPhotos(logData.meal_photos);
+        }
         // Fetch the entries
         const { data: entries } = await supabase
           .from('nutrition_entries')
@@ -216,6 +226,58 @@ export default function NutritionSummaryScreen() {
     }
   };
 
+  const handleTakeMealPhoto = async () => {
+    if (selectedFilter === 'Journée complète') return;
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        setUploading(true);
+        const base64 = result.assets[0].base64;
+        const ext = result.assets[0].uri.split('.').pop()?.toLowerCase() || 'jpg';
+        
+        const mapMealTypeToDB = (frontendMeal: string) => {
+          if (frontendMeal === 'Petit-déjeuner') return 'breakfast';
+          if (frontendMeal === 'Déjeuner') return 'lunch';
+          if (frontendMeal === 'Collation') return 'snack';
+          if (frontendMeal === 'Dîner') return 'dinner';
+          return 'snack';
+        };
+        const dbMealType = mapMealTypeToDB(selectedFilter);
+        const fileName = `${Date.now()}_meal_${dbMealType}.${ext}`;
+
+        const { data, error } = await supabase.storage
+          .from('meal-photos')
+          .upload(fileName, decode(base64), { contentType: `image/${ext}` });
+
+        if (error) throw error;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('meal-photos')
+          .getPublicUrl(fileName);
+
+        // Update DB
+        if (logId) {
+          const { data: currentLog } = await supabase.from('nutrition_logs').select('meal_photos').eq('id', logId).single();
+          const currentPhotos = currentLog?.meal_photos || {};
+          currentPhotos[selectedFilter] = publicUrl;
+          
+          await supabase.from('nutrition_logs').update({ meal_photos: currentPhotos }).eq('id', logId);
+          setMealPhotos(currentPhotos);
+        }
+
+        setUploading(false);
+      }
+    } catch (error) {
+      console.warn("Erreur photo de repas:", error);
+      setUploading(false);
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Header 
@@ -236,6 +298,36 @@ export default function NutritionSummaryScreen() {
 
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {selectedFilter !== 'Journée complète' && (
+          <Animated.View entering={FadeInUp.delay(100).springify()}>
+            <TouchableOpacity 
+              style={[styles.photoCard, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]} 
+              onPress={handleTakeMealPhoto}
+              disabled={uploading}
+            >
+              {mealPhotos[selectedFilter] ? (
+                <Image source={{ uri: mealPhotos[selectedFilter] }} style={styles.mealImage} />
+              ) : (
+                <View style={styles.photoPlaceholder}>
+                  {uploading ? (
+                    <ActivityIndicator color={theme.primary} size="large" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="add-a-photo" size={40} color={theme.icon} />
+                      <Text style={[styles.photoText, { color: theme.icon }]}>Associer une photo au repas</Text>
+                    </>
+                  )}
+                </View>
+              )}
+              {mealPhotos[selectedFilter] && (
+                <View style={styles.editPhotoBadge}>
+                  <MaterialIcons name="edit" size={20} color="#FFF" />
+                </View>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
         <Animated.View entering={FadeInUp.delay(200).springify()}>
           <Card style={[styles.card, { backgroundColor: theme.surfaceSecondary, borderWidth: 0, marginTop: Layout.spacing.lg }]} elevation="none">
             <View style={styles.cardHeader}>
@@ -244,10 +336,35 @@ export default function NutritionSummaryScreen() {
             </View>
             
             <View style={styles.barsContainer}>
-              <GoalBar label="Calories" current={activeData.calories} max={activeGoals.calories} color={theme.primary} unit="kcal" />
-              <GoalBar label="Protéines" current={activeData.proteins} max={activeGoals.proteins} color="#3B82F6" />
-              <GoalBar label="Glucides" current={activeData.carbs} max={activeGoals.carbs} color="#F59E0B" />
-              <GoalBar label="Lipides" current={activeData.fats} max={activeGoals.fats} color="#EF4444" />
+              <GoalBar 
+                label="Calories" 
+                current={activeData.calories} 
+                max={selectedFilter === 'Journée complète' ? activeGoals.calories : dailyGoals.calories} 
+                color={theme.primary} 
+                unit="kcal" 
+                hideMax={selectedFilter !== 'Journée complète'}
+              />
+              <GoalBar 
+                label="Protéines" 
+                current={activeData.proteins} 
+                max={selectedFilter === 'Journée complète' ? activeGoals.proteins : dailyGoals.proteins} 
+                color="#3B82F6" 
+                hideMax={selectedFilter !== 'Journée complète'}
+              />
+              <GoalBar 
+                label="Glucides" 
+                current={activeData.carbs} 
+                max={selectedFilter === 'Journée complète' ? activeGoals.carbs : dailyGoals.carbs} 
+                color="#F59E0B" 
+                hideMax={selectedFilter !== 'Journée complète'}
+              />
+              <GoalBar 
+                label="Lipides" 
+                current={activeData.fats} 
+                max={selectedFilter === 'Journée complète' ? activeGoals.fats : dailyGoals.fats} 
+                color="#EF4444" 
+                hideMax={selectedFilter !== 'Journée complète'}
+              />
             </View>
 
             {activeData.calories === 0 && (
@@ -357,6 +474,38 @@ const styles = StyleSheet.create({
   },
   barsContainer: {
     gap: Layout.spacing.md,
+  },
+  photoCard: {
+    height: 200,
+    borderRadius: Layout.borderRadius.xl,
+    overflow: 'hidden',
+    marginTop: Layout.spacing.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mealImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoText: {
+    marginTop: Layout.spacing.sm,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  editPhotoBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 8,
+    borderRadius: 20,
   },
   goalBarContainer: {
     width: '100%',

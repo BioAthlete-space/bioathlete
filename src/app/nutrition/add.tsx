@@ -338,14 +338,17 @@ Ne renvoie absolument aucun autre texte, juste le JSON.`;
     }
   };
 
-  const handleSelectFood = async (item: any) => {
-    setEnriching(true);
+  const handleSelectFood = (item: any) => {
     setSelectedFood(item);
     setEnrichedUnit({ countable: false, unitName: null, unitWeight: null, isLiquid: false, healthScore: null, healthReason: null });
+    setSelectedUnit('g');
     setQuantityStr('100');
+    setEnriching(true);
     
-    try {
-      const prompt = `L'utilisateur a sélectionné l'aliment : "${item.name}".
+    // Appel à l'IA en arrière-plan sans bloquer l'UI
+    (async () => {
+      try {
+        const prompt = `L'utilisateur a sélectionné l'aliment : "${item.name}".
 Détermine son type de portionnage idéal ET son score de santé.
 1. Portionnage: Est-ce un aliment qui se compte généralement par unités standards (ex: oeuf ~50g, tranche de pain de mie ~30g, cookie ~15g, pomme ~150g) ? 
 ATTENTION : Les viandes (escalope de poulet, steak), les poissons, le riz, les pâtes NE SONT PAS dénombrables avec un poids fixe, ils se pèsent en grammes. Dis "countable": false pour eux.
@@ -354,54 +357,54 @@ ATTENTION : Les viandes (escalope de poulet, steak), les poissons, le riz, les p
 Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
 { "countable": boolean, "unit_name": "nom de l'unité au singulier (ex: œuf, tranche, pièce)" ou null, "unit_weight_g": poids d'une unité en grammes (nombre) ou null, "is_liquid": boolean, "health_score": nombre, "health_reason": "string" }`;
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1 }
-          })
-        }
-      );
-      
-      const data = await response.json();
-      const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (textOutput) {
-        const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanJson);
-        if (parsed) {
-          const isCountable = !!parsed.countable;
-          const uName = parsed.unit_name || null;
-          let uWeight = parsed.unit_weight_g;
-          if (typeof uWeight === 'string') uWeight = parseFloat(uWeight.replace(',', '.'));
-          if (!uWeight || isNaN(uWeight)) uWeight = 100; // Fallback to 100g if AI fails to provide it
-          const isLiq = !!parsed.is_liquid;
-          
-          setEnrichedUnit({
-            countable: isCountable,
-            unitName: uName,
-            unitWeight: uWeight,
-            isLiquid: isLiq,
-            healthScore: typeof parsed.health_score === 'number' ? parsed.health_score : null,
-            healthReason: parsed.health_reason || null
-          });
-          if (isCountable && uName) {
-            setSelectedUnit(uName);
-            setQuantityStr('1');
-          } else {
-            setSelectedUnit(isLiq ? 'ml' : 'g');
-            setQuantityStr('100');
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.1 }
+            })
+          }
+        );
+        
+        const data = await response.json();
+        const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (textOutput) {
+          const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(cleanJson);
+          if (parsed) {
+            const isCountable = !!parsed.countable;
+            const uName = parsed.unit_name || null;
+            let uWeight = parsed.unit_weight_g;
+            if (typeof uWeight === 'string') uWeight = parseFloat(uWeight.replace(',', '.'));
+            if (!uWeight || isNaN(uWeight)) uWeight = 100; // Fallback to 100g if AI fails to provide it
+            const isLiq = !!parsed.is_liquid;
+            
+            setEnrichedUnit({
+              countable: isCountable,
+              unitName: uName,
+              unitWeight: uWeight,
+              isLiquid: isLiq,
+              healthScore: typeof parsed.health_score === 'number' ? parsed.health_score : null,
+              healthReason: parsed.health_reason || null
+            });
+            if (isCountable && uName) {
+              setSelectedUnit(uName);
+              setQuantityStr(prev => prev === '100' ? '1' : prev);
+            } else {
+              setSelectedUnit(isLiq ? 'ml' : 'g');
+            }
           }
         }
+      } catch (e) {
+        console.warn("Erreur AI Enrichment:", e);
+      } finally {
+        setEnriching(false);
       }
-    } catch (e) {
-      console.warn("Erreur AI Enrichment:", e);
-    } finally {
-      setEnriching(false);
-    }
+    })();
   };
 
   const getFinalQtyGrams = () => {
@@ -480,7 +483,9 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
           proteins: addedProts,
           carbs: addedCarbs,
           fats: addedFats,
-          meal_type: mapMealTypeToDB(mealType)
+          meal_type: mapMealTypeToDB(mealType),
+          unit: selectedUnit,
+          original_quantity: parseFloat(quantityStr) || 0
         });
       }
 
@@ -540,24 +545,20 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
             </TouchableOpacity>
           ) : undefined
         }
-        title={selectedFood ? selectedFood.name : `Ajouter - ${mealType}`}
+        title={selectedFood ? "Détails de l'aliment" : `Ajouter - ${mealType}`}
       />
 
       <View style={styles.content}>
         {!selectedFood ? (
           <Animated.View entering={FadeInDown.duration(300)}>
             <View style={styles.hubContainer}>
-              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'photo', meal: mealType, date: targetDate } })}>
-                <MaterialIcons name="camera-alt" size={28} color="#8B5CF6" />
-                <Text style={[styles.hubText, { color: theme.text }]}>Caméra</Text>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary, flex: 1 }]} onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'photo', meal: mealType, date: targetDate } })}>
+                <MaterialIcons name="camera-alt" size={36} color="#8B5CF6" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Photo IA</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'barcode', meal: mealType, date: targetDate } })}>
-                <MaterialIcons name="qr-code-scanner" size={28} color="#3B82F6" />
-                <Text style={[styles.hubText, { color: theme.text }]}>Scan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary }]} onPress={() => router.push({ pathname: '/nutrition/text-ai', params: { meal: mealType, date: targetDate } })}>
-                <MaterialIcons name="chat" size={28} color="#10B981" />
-                <Text style={[styles.hubText, { color: theme.text }]}>Texte</Text>
+              <TouchableOpacity style={[styles.hubBtn, { backgroundColor: theme.surfaceSecondary, flex: 1 }]} onPress={() => router.push({ pathname: '/nutrition/text-ai', params: { meal: mealType, date: targetDate } })}>
+                <MaterialIcons name="chat" size={36} color="#10B981" />
+                <Text style={[styles.hubText, { color: theme.text }]}>Saisie Texte IA</Text>
               </TouchableOpacity>
             </View>
 
@@ -565,14 +566,21 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
               <MaterialIcons name="search" size={24} color={theme.icon} style={styles.searchIcon} />
               <TextInput
                 style={[styles.searchInput, { color: theme.text }]}
-                placeholder={`Qu'avez-vous mangé au ${mealType} ?`}
+                placeholder={`Rechercher un aliment...`}
                 placeholderTextColor={theme.icon}
                 value={query}
                 onChangeText={setQuery}
               />
-              {query.length > 0 && (
-                <TouchableOpacity onPress={() => setQuery('')}>
+              {query.length > 0 ? (
+                <TouchableOpacity onPress={() => setQuery('')} style={{ padding: 4 }}>
                   <MaterialIcons name="cancel" size={20} color={theme.icon} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  onPress={() => router.push({ pathname: '/nutrition/camera-hub', params: { mode: 'barcode', meal: mealType, date: targetDate } })}
+                  style={{ padding: 4, backgroundColor: theme.primary, borderRadius: 12, marginLeft: 8 }}
+                >
+                  <MaterialIcons name="qr-code-scanner" size={20} color="#FFF" />
                 </TouchableOpacity>
               )}
             </View>
@@ -612,9 +620,11 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
             )}
           </Animated.View>
         ) : (
-          <Animated.View entering={SlideInRight.springify()} style={[styles.selectedFoodContainer, { flex: 1 }]}>
-            <Card style={[styles.foodDetailsCard, { flex: 1, marginBottom: 120 }]} elevation="medium">
+          <Animated.View entering={SlideInRight.springify()} style={[styles.selectedFoodContainer, { flex: 1, justifyContent: 'center' }]}>
+            <Card style={[styles.foodDetailsCard, { marginBottom: Layout.spacing.xl }]} elevation="medium">
               <View style={{ marginBottom: Layout.spacing.lg }}>
+                <Text style={[styles.selectedFoodName, { color: theme.text, textAlign: 'center', marginBottom: Layout.spacing.md }]}>{selectedFood.name}</Text>
+                
                 {enrichedUnit.healthScore !== null && (
                   <View style={{ alignItems: 'center', marginBottom: Layout.spacing.lg }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: enrichedUnit.healthScore >= 8 ? '#10B98122' : enrichedUnit.healthScore >= 5 ? '#F59E0B22' : '#EF444422', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 }}>
@@ -650,16 +660,14 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
                   );
                 })}
               </View>
-            </Card>
 
-            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: Layout.spacing.lg, paddingTop: Layout.spacing.md, backgroundColor: theme.background }}>
-              <View style={styles.quantityContainer}>
+              <View style={[styles.quantityContainer, { justifyContent: 'center', gap: Layout.spacing.md, marginTop: Layout.spacing.md }]}>
                 {enriching ? (
                   <ActivityIndicator color={theme.primary} />
                 ) : (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Layout.spacing.md }}>
                     <TextInput
-                      style={[styles.quantityInput, { flex: 1, color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                      style={[styles.quantityInput, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
                       keyboardType="numeric"
                       value={quantityStr}
                       onChangeText={setQuantityStr}
@@ -677,12 +685,13 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
                 )}
               </View>
               {enrichedUnit.countable && enrichedUnit.unitWeight && selectedUnit !== 'g' && selectedUnit !== 'ml' && !enriching && (
-                <Text style={{ color: theme.icon, fontSize: 13, textAlign: 'center', marginTop: -Layout.spacing.xs, marginBottom: Layout.spacing.sm }}>
+                <Text style={{ color: theme.icon, fontSize: 13, textAlign: 'center', marginTop: -Layout.spacing.xs, marginBottom: Layout.spacing.lg }}>
                   Soit environ {Math.round((parseFloat(quantityStr) || 0) * enrichedUnit.unitWeight)} {enrichedUnit.isLiquid ? 'ml' : 'g'}
                 </Text>
               )}
+              
               <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: theme.primary, marginTop: 0 }]}
+                style={[styles.saveBtn, { backgroundColor: theme.primary, marginTop: Layout.spacing.md }]}
                 onPress={handleSave}
                 disabled={loading}
               >
@@ -692,7 +701,7 @@ Renvoie UNIQUEMENT un objet JSON (sans bloc markdown) avec ce format EXACT :
                   <Text style={styles.saveBtnText}>Valider l'ajout</Text>
                 )}
               </TouchableOpacity>
-            </View>
+            </Card>
           </Animated.View>
         )}
       </View>
@@ -872,12 +881,11 @@ const styles = StyleSheet.create({
   },
   hubContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: Layout.spacing.md,
     marginBottom: Layout.spacing.lg,
   },
   hubBtn: {
-    width: '31%',
-    aspectRatio: 1,
+    height: 90,
     borderRadius: Layout.borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',

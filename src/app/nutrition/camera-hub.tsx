@@ -127,10 +127,13 @@ export default function CameraHubScreen() {
     setAiResult(null);
     try {
       const prompt = `Agis comme un expert nutritionniste. Analyse cette image de repas. 
-Estime les portions et donne moi les informations nutritionnelles pour ce que tu vois dans l'assiette (la portion totale visible).
-Renvoie UNIQUEMENT un JSON respectant EXACTEMENT ce format :
-{ "food_name": "Nom du plat complet", "calories": 500, "proteins": 30, "carbs": 40, "fats": 20 }
-Ne renvoie aucun autre texte.`;
+Estime les portions et donne moi les informations nutritionnelles de CHAQUE INGRÉDIENT OU ALIMENT distinct visible dans l'assiette.
+Renvoie UNIQUEMENT un JSON contenant un TABLEAU d'objets, respectant EXACTEMENT ce format :
+[
+  { "food_name": "Description courte (ex: Steak haché)", "calories": 250, "proteins": 20, "carbs": 0, "fats": 15 },
+  { "food_name": "Portion de frites", "calories": 350, "proteins": 4, "carbs": 45, "fats": 15 }
+]
+Ne renvoie absolument aucun autre texte, pas de balises markdown, juste le JSON valide sous forme de tableau.`;
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
@@ -151,8 +154,10 @@ Ne renvoie aucun autre texte.`;
         const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleanJson);
         
-        if (parsed.food_name) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           setAiResult(parsed);
+        } else {
+          throw new Error("JSON Invalide ou vide");
         }
       }
     } catch (err) {
@@ -191,10 +196,10 @@ Ne renvoie aucun autre texte.`;
         .eq('log_date', targetDate)
         .maybeSingle();
 
-      const addedCals = Math.round(aiResult.calories);
-      const addedProts = Math.round(aiResult.proteins);
-      const addedCarbs = Math.round(aiResult.carbs);
-      const addedFats = Math.round(aiResult.fats);
+      const addedCals = aiResult.reduce((sum: number, item: any) => sum + Math.round(item.calories), 0);
+      const addedProts = aiResult.reduce((sum: number, item: any) => sum + Math.round(item.proteins), 0);
+      const addedCarbs = aiResult.reduce((sum: number, item: any) => sum + Math.round(item.carbs), 0);
+      const addedFats = aiResult.reduce((sum: number, item: any) => sum + Math.round(item.fats), 0);
 
       if (existingLog) {
         logId = existingLog.id;
@@ -226,17 +231,19 @@ Ne renvoie aucun autre texte.`;
       }
 
       if (logId) {
-        await supabase.from('nutrition_entries').insert({
+        const entriesToInsert = aiResult.map((item: any) => ({
           log_id: logId,
-          food_name: aiResult.food_name + " (estimé IA)",
+          food_name: item.food_name + " (estimé IA)",
           quantity_g: 100, // Conceptuel
-          calories: addedCals,
-          proteins: addedProts,
-          carbs: addedCarbs,
-          fats: addedFats,
+          calories: Math.round(item.calories),
+          proteins: Math.round(item.proteins),
+          carbs: Math.round(item.carbs),
+          fats: Math.round(item.fats),
           meal_type: mapMealTypeToDB(mealType),
           is_ai_estimated: true
-        });
+        }));
+        
+        await supabase.from('nutrition_entries').insert(entriesToInsert);
       }
 
       router.replace({ pathname: '/nutrition/summary', params: { meal: mealType, date: targetDate } });
@@ -275,27 +282,23 @@ Ne renvoie aucun autre texte.`;
                   <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>Ce que l'IA a détecté :</Text>
                 </View>
                 
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: Layout.spacing.lg }}>
-                  {aiResult.food_name}
-                </Text>
+                <ScrollView style={{ maxHeight: 200, marginBottom: Layout.spacing.lg }}>
+                  {aiResult.map((item: any, index: number) => (
+                    <View key={index} style={{ marginBottom: Layout.spacing.sm, paddingBottom: Layout.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                      <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>{item.food_name}</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                        <Text style={{ color: theme.primary }}>{item.calories} kcal</Text>
+                        <Text style={{ color: theme.icon }}>P: {item.proteins}g | G: {item.carbs}g | L: {item.fats}g</Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
                 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: Layout.spacing.xl }}>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: theme.primary, fontWeight: 'bold', fontSize: 18 }}>{aiResult.calories}</Text>
-                    <Text style={{ color: theme.icon, fontSize: 12 }}>kcal</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: '#3B82F6', fontWeight: 'bold', fontSize: 18 }}>{aiResult.proteins}g</Text>
-                    <Text style={{ color: theme.icon, fontSize: 12 }}>Protéines</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: '#F59E0B', fontWeight: 'bold', fontSize: 18 }}>{aiResult.carbs}g</Text>
-                    <Text style={{ color: theme.icon, fontSize: 12 }}>Glucides</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 18 }}>{aiResult.fats}g</Text>
-                    <Text style={{ color: theme.icon, fontSize: 12 }}>Lipides</Text>
-                  </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: Layout.spacing.lg, padding: Layout.spacing.sm, backgroundColor: theme.surfaceSecondary, borderRadius: 8 }}>
+                  <Text style={{ color: theme.text, fontWeight: 'bold' }}>Total Estimé</Text>
+                  <Text style={{ color: theme.primary, fontWeight: 'bold' }}>
+                    {aiResult.reduce((sum: number, item: any) => sum + item.calories, 0)} kcal
+                  </Text>
                 </View>
 
                 <TouchableOpacity 
