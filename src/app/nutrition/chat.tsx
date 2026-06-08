@@ -223,8 +223,10 @@ export default function AINutritionHubScreen() {
         stateInstruction = `[MODE ENQUÊTE - BILAN INITIAL]
 L'athlète effectue son bilan initial. Ton but est de construire son dossier complet.
 POSE LES QUESTIONS SÉQUENTIELLEMENT, JAMAIS EN BLOC (une à la fois) pour simuler un entretien clinique.
-TA TOUTE PREMIÈRE QUESTION DOIT EXPLICITEMENT DEMANDER SON POIDS (le champ de saisie s'adaptera en une molette de précision pour lui).
-TA DEUXIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SA TAILLE (en cm).
+TA TOUTE PREMIÈRE QUESTION DOIT EXPLICITEMENT DEMANDER SON POIDS (Vérifie d'abord si on l'a déjà: Poids=${contextData?.profile?.weightkg || '?'}).
+TA DEUXIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SA TAILLE (Vérifie d'abord si on l'a déjà: Taille=${contextData?.profile?.heightcm || '?'}).
+TA TROISIÈME QUESTION DOIT EXPLICITEMENT DEMANDER SON ÂGE (Vérifie d'abord si on l'a déjà: Âge=${contextData?.profile?.birthdate ? 'Oui' : 'Non'}).
+Ne demande que les informations manquantes parmi ces trois points.
 Rubriques à explorer ENSUITE :
 3. Équipement de suivi : Demande-lui s'il possède une balance à disposition, et si oui, s'il s'agit d'une balance classique ou d'un impédancemètre.
 4. Charge Athlétique : Fréquence, type de séances, échéances.
@@ -256,12 +258,26 @@ S'il est pertinent d'ajuster ses macros, utilise l'outil 'adjust_macros'.
 Réponds de manière concise, experte et motivante.`;
       }
 
+      const calculateAge = (birthdate: string) => {
+        if (!birthdate) return '?';
+        const today = new Date();
+        const birthDate = new Date(birthdate);
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+        }
+        return age;
+      };
+
       const systemPrompt = `Tu es Bioflow, un coach de nutrition sportive olympique intégré dans BioAthlete. Tu parles directement à l'athlète (tutoiement).
 Ne dis JAMAIS "En tant qu'IA".
 [Contexte Temporel] : Nous sommes le ${new Date().toLocaleString('fr-FR')}
 
+
 Données réelles :
 - Poids : ${contextData?.profile?.weightkg || '?'} kg | Taille : ${contextData?.profile?.heightcm || '?'} cm
+- Âge : ${calculateAge(contextData?.profile?.birthdate)} ans | Sexe : ${contextData?.profile?.gender || '?'}
 - Objectifs actuels : ${contextData?.nutrition?.target_calories || '?'} kcal (P:${contextData?.nutrition?.target_proteins} G:${contextData?.nutrition?.target_carbs} L:${contextData?.nutrition?.target_fats})
 - Repas : ${JSON.stringify(contextData?.nutrition?.meal_distribution || {})}
 - Checkin aujourd'hui : ${contextData?.todayCheckin ? 'Oui' : 'Non'}

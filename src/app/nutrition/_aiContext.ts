@@ -4,10 +4,10 @@ export const fetchAthleteAIContext = async (userId: string) => {
   if (!userId) return null;
 
   try {
-    // 1. Profile (Weight, Height)
+    // 1. Profile (Weight, Height, Birthdate, Gender)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('weightkg, heightcm')
+      .select('weightkg, heightcm, birthdate, gender')
       .eq('id', userId)
       .maybeSingle();
 
