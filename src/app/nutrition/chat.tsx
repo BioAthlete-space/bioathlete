@@ -240,7 +240,7 @@ Méthode de calcul stricte :
 4. Lipides = 1.0g/kg de poids corporel.
 5. Glucides = le reste des calories divisé par 4.
 Dans le champ 'baseline_report' de l'outil, rédige un rapport de nutrition professionnel TRÈS détaillé (analyse de ses habitudes, points à surveiller, conseils d'hydratation, avis sur son sommeil/digestion). Ce rapport finira en PDF pour lui.
-Termine ta réponse textuelle par ce message exact : "Le bilan est terminé. Tes objectifs nutritionnels sont maintenant disponibles dans tes paramètres. Tu pourras y ajuster ton niveau d'activité (sédentaire, intense, etc.) et ta répartition par repas à ta convenance."`;
+CRITIQUE : Si tu as assez d'infos pour finaliser le bilan, appelle UNIQUEMENT l'outil 'finalize_initial_assessment'. Ne génère absolument AUCUN texte avec cet appel. Si tu n'as pas assez d'infos, pose simplement ta question textuelle sans appeler l'outil.`;
       } else if (currentView === VIEW_STATES.CHECKIN) {
         stateInstruction = `[MODE SUIVI - CHECK-IN]
 L'athlète effectue son check-in régulier. Demande comment il se sent. Si un ajustement est nécessaire, utilise l'outil 'adjust_macros' puis conclus. S'il mentionne une nouvelle intolérance ou préférence, utilise l'outil 'update_memory'.`;
@@ -332,7 +332,7 @@ ${stateInstruction}`;
               is_bilan_done: true
             }, { onConflict: 'athlete_id' });
           }
-          functionResponseData = { status: "success", message: "Bilan initial généré et sauvegardé." };
+          functionResponseData = { status: "success", message: "Dis à l'athlète exactement ceci : 'Le bilan est terminé. Tes objectifs nutritionnels sont maintenant disponibles dans tes paramètres. Tu pourras y ajuster ton niveau d'activité (sédentaire, intense, etc.) et ta répartition par repas à ta convenance.'" };
           shouldReturnToHub = true;
         } else if (fc.name === 'update_memory') {
           let currentMem = athleteMemory || {};
